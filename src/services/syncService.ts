@@ -1,0 +1,456 @@
+import type { BusinessSettings, Party, RateMemoryItem, Invoice, BillDraft } from '../domain/types';
+import { storageService } from './storage';
+
+export type SyncStatus = 'synced' | 'syncing' | 'offline';
+
+export interface SyncState {
+  serverTime: string;
+  settings: BusinessSettings | null;
+  parties: Party[];
+  rateMemory: RateMemoryItem[];
+  invoices: Invoice[];
+  drafts?: BillDraft[];
+  activeDraft: Partial<Invoice> | null;
+}
+
+interface QueuedAction {
+  id: string;
+  type: 'save_draft' | 'save_party' | 'save_settings' | 'record_payment';
+  payload: any;
+  queuedAt: string;
+}
+
+const OFFLINE_QUEUE_KEY = 'skt_offline_queue_v1';
+const BUSINESS_KEY = 'SKT-SRIKRISHNA-2026';
+
+type SyncListener = (state: Partial<SyncState>, status: SyncStatus) => void;
+
+class SyncService {
+  private syncStatus: SyncStatus = 'synced';
+  private listeners: Set<SyncListener> = new Set();
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private isSyncing = false;
+  private lastServerTimestamp: string = '';
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        this.setStatus('syncing');
+        this.drainQueue().then(() => this.pullLatest());
+      });
+      window.addEventListener('offline', () => {
+        this.setStatus('offline');
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.pullLatest();
+        }
+      });
+    }
+  }
+
+  public subscribe(listener: SyncListener): () => void {
+    this.listeners.add(listener);
+    listener({}, this.syncStatus);
+    return () => this.listeners.delete(listener);
+  }
+
+  private setStatus(status: SyncStatus) {
+    if (this.syncStatus !== status) {
+      this.syncStatus = status;
+      this.notifyListeners({}, status);
+    }
+  }
+
+  private notifyListeners(partialState: Partial<SyncState>, status: SyncStatus) {
+    this.listeners.forEach((fn) => fn(partialState, status));
+  }
+
+  public startSync(intervalMs = 2500): void {
+    this.stopSync();
+    // Initial fetch
+    this.pullLatest();
+    this.pollInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        this.pullLatest();
+      }
+    }, intervalMs);
+  }
+
+  public stopSync(): void {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+  }
+
+  public getStatus(): SyncStatus {
+    return this.syncStatus;
+  }
+
+  public getLastServerTimestamp(): string {
+    return this.lastServerTimestamp;
+  }
+
+  // --------------------------------------------------------------------------
+  // PULL LATEST FROM SHARED DATABASE
+  // --------------------------------------------------------------------------
+  public async pullLatest(): Promise<SyncState | null> {
+    if (this.isSyncing) return null;
+    this.isSyncing = true;
+
+    try {
+      const res = await fetch('/api/sync/state', {
+        headers: {
+          'X-Business-Key': BUSINESS_KEY,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
+      const data: SyncState = await res.json();
+      this.lastServerTimestamp = data.serverTime;
+      this.setStatus('synced');
+
+      // Update local storage cache to keep it in sync with database
+      if (data.settings) storageService.saveSettings(data.settings);
+      if (data.parties) storageService.saveParties(data.parties);
+      if (data.rateMemory) storageService.saveRateMemory(data.rateMemory);
+      if (data.invoices) storageService.saveInvoices(data.invoices);
+
+      // Check draft updates
+      if (data.drafts && Array.isArray(data.drafts)) {
+        storageService.mergeDrafts(data.drafts);
+      } else if (data.activeDraft) {
+        const localDraft = storageService.getActiveDraft();
+        const serverDraftTime = new Date(data.activeDraft.updatedAt || 0).getTime();
+        const localDraftTime = new Date(localDraft?.updatedAt || 0).getTime();
+        // Server draft is newer or local has none
+        if (!localDraft || serverDraftTime > localDraftTime) {
+          storageService.saveActiveDraft(data.activeDraft);
+        }
+      }
+
+      this.notifyListeners(data, 'synced');
+      return data;
+    } catch {
+      this.setStatus('offline');
+      return null;
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // DRAFT SYNCHRONIZATION
+  // --------------------------------------------------------------------------
+  public async pushDraft(draft: Partial<Invoice> | BillDraft): Promise<boolean> {
+    if (draft.id) {
+      storageService.saveDraft(draft as BillDraft);
+    } else {
+      storageService.saveActiveDraft(draft);
+    }
+
+    try {
+      this.setStatus('syncing');
+      const res = await fetch('/api/draft', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify(draft),
+        keepalive: true,
+      });
+
+      if (!res.ok) throw new Error('Failed to sync draft');
+      this.setStatus('synced');
+      this.notifyListeners({ drafts: storageService.getDrafts() }, 'synced');
+      return true;
+    } catch {
+      this.queueAction('save_draft', draft);
+      this.setStatus('offline');
+      return false;
+    }
+  }
+
+  public async deleteDraft(draftId: string): Promise<boolean> {
+    storageService.deleteDraft(draftId);
+    try {
+      await fetch(`/api/drafts/${draftId}`, {
+        method: 'DELETE',
+        headers: { 'X-Business-Key': BUSINESS_KEY },
+      });
+      this.notifyListeners({ drafts: storageService.getDrafts() }, 'synced');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async clearDraft(): Promise<boolean> {
+    const activeDraft = storageService.getActiveDraft();
+    if (activeDraft && activeDraft.id) {
+      return this.deleteDraft(activeDraft.id);
+    }
+    storageService.clearActiveDraft();
+    try {
+      await fetch('/api/draft', {
+        method: 'DELETE',
+        headers: { 'X-Business-Key': BUSINESS_KEY },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // PARTIES SYNCHRONIZATION
+  // --------------------------------------------------------------------------
+  public async saveParty(party: Partial<Party>): Promise<Party | null> {
+    try {
+      this.setStatus('syncing');
+      const isEdit = Boolean(party.id && !party.id.startsWith('party_temp_'));
+      const url = isEdit ? `/api/parties/${party.id}` : '/api/parties';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify(party),
+      });
+
+      if (!res.ok) throw new Error('Party sync failed');
+      const savedParty = await res.json();
+
+      // Update local cache
+      const parties = storageService.getParties();
+      const existingIdx = parties.findIndex((p) => p.id === (isEdit ? party.id : savedParty.id));
+      if (existingIdx >= 0) {
+        parties[existingIdx] = { ...parties[existingIdx], ...savedParty };
+      } else {
+        parties.push(savedParty);
+      }
+      storageService.saveParties(parties);
+
+      this.setStatus('synced');
+      this.notifyListeners({ parties }, 'synced');
+      return savedParty;
+    } catch {
+      // Local fallback & queue
+      const parties = storageService.getParties();
+      const tempParty: Party = {
+        id: party.id || `party_${Date.now()}`,
+        name: party.name || '',
+        address: party.address || '',
+        gstin: party.gstin || '',
+        phone: party.phone || '',
+        notes: party.notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      parties.push(tempParty);
+      storageService.saveParties(parties);
+      this.queueAction('save_party', tempParty);
+      this.setStatus('offline');
+      return tempParty;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // ATOMIC INVOICE FINALIZATION (Directly to SQLite with Immediate Concurrency Lock)
+  // --------------------------------------------------------------------------
+  public async finalizeInvoice(payload: {
+    financialYear: string;
+    partyId: string;
+    invoiceDate: string;
+    dcs: any[];
+    calculations: any;
+    draftId?: string;
+  }): Promise<Invoice> {
+    this.setStatus('syncing');
+    const res = await fetch('/api/invoices/finalize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Business-Key': BUSINESS_KEY,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown server error' }));
+      throw new Error(err.error || 'Invoice finalization failed');
+    }
+
+    const finalizedInvoice: Invoice = await res.json();
+
+    // Update local cache
+    const existing = storageService.getInvoices();
+    existing.unshift(finalizedInvoice);
+    storageService.saveInvoices(existing);
+    if (payload.draftId) {
+      storageService.deleteDraft(payload.draftId);
+    } else {
+      storageService.clearActiveDraft();
+    }
+
+    this.setStatus('synced');
+    this.notifyListeners({ invoices: existing, drafts: storageService.getDrafts(), activeDraft: null }, 'synced');
+    return finalizedInvoice;
+  }
+
+  // --------------------------------------------------------------------------
+  // INVOICE PAYMENT RECORDING
+  // --------------------------------------------------------------------------
+  public async recordPayment(invoiceId: string, amount: number, date: string, notes?: string): Promise<boolean> {
+    try {
+      this.setStatus('syncing');
+      const res = await fetch(`/api/invoices/${invoiceId}/payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify({ amount, date, notes }),
+      });
+
+      if (!res.ok) throw new Error('Payment sync failed');
+      await this.pullLatest();
+      return true;
+    } catch {
+      this.queueAction('record_payment', { invoiceId, amount, date, notes });
+      this.setStatus('offline');
+      return false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // SETTINGS SYNC
+  // --------------------------------------------------------------------------
+  public async saveSettings(settings: BusinessSettings): Promise<boolean> {
+    storageService.saveSettings(settings);
+    try {
+      this.setStatus('syncing');
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify(settings),
+      });
+
+      if (!res.ok) throw new Error('Settings sync failed');
+      this.setStatus('synced');
+      this.notifyListeners({ settings }, 'synced');
+      return true;
+    } catch {
+      this.queueAction('save_settings', settings);
+      this.setStatus('offline');
+      return false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // OFFLINE QUEUE DRAIN
+  // --------------------------------------------------------------------------
+  private queueAction(type: QueuedAction['type'], payload: any) {
+    if (typeof window === 'undefined') return;
+    try {
+      const queue: QueuedAction[] = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+      queue.push({
+        id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        type,
+        payload,
+        queuedAt: new Date().toISOString(),
+      });
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    } catch (e) {
+      console.error('Failed to queue offline action', e);
+    }
+  }
+
+  public async drainQueue(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+      if (!raw) return;
+      const queue: QueuedAction[] = JSON.parse(raw);
+      if (queue.length === 0) return;
+
+      const remaining: QueuedAction[] = [];
+      for (const item of queue) {
+        try {
+          if (item.type === 'save_draft') {
+            await fetch('/api/draft', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              body: JSON.stringify(item.payload),
+            });
+          } else if (item.type === 'save_party') {
+            await fetch('/api/parties', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              body: JSON.stringify(item.payload),
+            });
+          } else if (item.type === 'save_settings') {
+            await fetch('/api/settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              body: JSON.stringify(item.payload),
+            });
+          } else if (item.type === 'record_payment') {
+            await fetch(`/api/invoices/${item.payload.invoiceId}/payment`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              body: JSON.stringify(item.payload),
+            });
+          }
+        } catch {
+          remaining.push(item);
+        }
+      }
+
+      if (remaining.length > 0) {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
+      } else {
+        localStorage.removeItem(OFFLINE_QUEUE_KEY);
+      }
+    } catch (e) {
+      console.error('Error draining offline queue', e);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // MIGRATION FROM LOCALSTORAGE (Phase 5)
+  // --------------------------------------------------------------------------
+  public async migrateFromLocalStorage(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    try {
+      const parties = storageService.getParties();
+      const invoices = storageService.getInvoices();
+      const rateMemory = storageService.getRateMemory();
+      const draft = storageService.getActiveDraft();
+
+      await fetch('/api/sync/migrate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify({ parties, invoices, rateMemory, draft }),
+      });
+    } catch (e) {
+      console.error('Migration failed or offline', e);
+    }
+  }
+}
+
+export const syncService = new SyncService();

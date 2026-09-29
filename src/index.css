@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased font-sans;
+    min-height: 100vh;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 8mm 10mm;
+}
+
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Completely remove application UI from document flow */
+  header, nav, [class*="print:hidden"] {
+    display: none !important;
+  }
+
+  main, div[class*="max-w-"] {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    background: transparent !important;
+  }
+
+  #invoice-print-area {
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    display: block !important;
+  }
+
+  .invoice-page {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 auto !important;
+    padding: 16px 20px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 260mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .invoice-page,
+  .invoice-page * {
+    border-radius: 0 !important;
+  }
+
+  /* Table print optimization: Repeat headers on subsequent pages */
+  table {
+    border-collapse: collapse !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Multi-copy page break handling */
+  .invoice-page:not(:last-child) {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .invoice-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+}
