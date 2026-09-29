@@ -138,15 +138,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Server-level HTTP Basic Authentication gate
+  const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = decodeURIComponent(urlObj.pathname);
+
+  // 1. Unauthenticated health check endpoint for deployment orchestrators (Railway / Render)
+  if ((pathname === '/api/health' || pathname === '/health') && req.method === 'GET') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ status: 'ok', database: 'sqlite', timestamp: new Date().toISOString() }));
+    return;
+  }
+
+  // 2. Server-level HTTP Basic Authentication gate for all protected routes
   if (!checkBasicAuth(req, res)) {
     return;
   }
 
-  const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const pathname = decodeURIComponent(urlObj.pathname);
-
-  // API router delegation
+  // 3. API router delegation
   if (pathname === '/api' || pathname.startsWith('/api/')) {
     handleApiRequest(req, res, (err) => {
       if (err) {
@@ -165,15 +173,19 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, pathname);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Sri Krishna Textile billing server running on http://${HOST}:${PORT}`);
-});
-
-const shutdown = () => {
-  server.close(() => {
-    process.exit(0);
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`Sri Krishna Textile billing server running on http://${HOST}:${PORT}`);
   });
-};
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+  const shutdown = () => {
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+module.exports = { server, PORT, HOST };
