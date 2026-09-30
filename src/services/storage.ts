@@ -1,4 +1,5 @@
 import type { BusinessSettings, Party, RateMemoryItem, Invoice, BillDraft } from '../domain/types';
+import { NAV_STORAGE_KEY, type NavigationState, type NavTab, normalizeTab } from './navigation';
 
 const SETTINGS_KEY = 'skt_business_settings_v1';
 const PARTIES_KEY = 'skt_parties_v1';
@@ -545,6 +546,43 @@ class StorageService {
     );
     this.saveDrafts(merged);
     return merged;
+  }
+
+  getNavigationState(): NavigationState | null {
+    try {
+      const data = safeStorage.getItem(NAV_STORAGE_KEY);
+      if (!data) return null;
+      const parsed = JSON.parse(data);
+      const tab = normalizeTab(parsed?.tab);
+      if (!tab) return null;
+      const invoiceId =
+        typeof parsed?.invoiceId === 'string' && parsed.invoiceId.trim()
+          ? parsed.invoiceId.trim()
+          : null;
+      return { tab, invoiceId };
+    } catch {
+      return null;
+    }
+  }
+
+  saveNavigationState(state: { tab: NavTab; invoiceId?: string | null }): void {
+    try {
+      const tab = normalizeTab(state.tab) || 'workspace';
+      const invoiceId =
+        tab === 'invoices' && typeof state.invoiceId === 'string' && state.invoiceId.trim()
+          ? state.invoiceId.trim()
+          : null;
+      safeStorage.setItem(
+        NAV_STORAGE_KEY,
+        JSON.stringify({ tab, invoiceId })
+      );
+    } catch {
+      // Ignore write errors
+    }
+  }
+
+  clearNavigationState(): void {
+    safeStorage.removeItem(NAV_STORAGE_KEY);
   }
 
   exportFullBackup(): string {

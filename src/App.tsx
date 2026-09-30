@@ -27,6 +27,13 @@ import {
   getFinancialYear,
   validateInvoiceForFinalization,
 } from './domain/calculations';
+import {
+  type NavTab,
+  parseNavigationHash,
+  formatNavigationHash,
+  resolveInitialNavigation,
+  syncBrowserUrl,
+} from './services/navigation';
 
 const createInitialDc = (dateStr: string): DCGroup => ({
   id: `dc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -49,9 +56,19 @@ const createInitialDc = (dateStr: string): DCGroup => ({
 });
 
 export function App() {
-  // Navigation State
-  const [activeTab, setActiveTab] = useState<'workspace' | 'drafts' | 'invoices' | 'parties' | 'settings'>('workspace');
-  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
+  // Navigation State with URL Hash & LocalStorage Refresh Persistence
+  const initialNav = useMemo(() => {
+    const rawHash = typeof window !== 'undefined' ? window.location.hash : '';
+    const stored = storageService.getNavigationState();
+    const allInvoices = storageService.getInvoices();
+    return resolveInitialNavigation(rawHash, stored, allInvoices);
+  }, []);
+
+  const [activeTab, setActiveTab] = useState<NavTab>(() => initialNav.tab);
+  const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(() => initialNav.viewingInvoice);
+  const pendingInvoiceIdRef = useRef<string | null>(
+    typeof window !== 'undefined' ? parseNavigationHash(window.location.hash)?.invoiceId || null : null
+  );
 
   // App Master Data State
   const [settings, setSettings] = useState<BusinessSettings>(() => storageService.getSettings());
@@ -286,6 +303,81 @@ export function App() {
       window.removeEventListener('pagehide', handleBeforeUnload);
     };
   }, [flushCloudSync]);
+
+  // Resolve deferred invoice ID if opened directly via URL before sync/storage finalized
+  useEffect(() => {
+    if (pendingInvoiceIdRef.current && !viewingInvoice && invoices.length > 0) {
+      const match = invoices.find((inv) => inv.id === pendingInvoiceIdRef.current);
+      if (match) {
+        setViewingInvoice(match);
+        pendingInvoiceIdRef.current = null;
+      }
+    }
+  }, [invoices, viewingInvoice]);
+
+  // Synchronize state changes to URL hash and localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const invoiceId = viewingInvoice?.id || null;
+    const targetHash = formatNavigationHash({ tab: activeTab, invoiceId });
+
+    // 1. Save minimal navigation state to localStorage (no sensitive info)
+    storageService.saveNavigationState({ tab: activeTab, invoiceId });
+
+    // 2. Synchronize browser URL hash
+    if (window.location.hash !== targetHash) {
+      const currentParsed = parseNavigationHash(window.location.hash);
+      const isInitialOrEmpty = !window.location.hash || window.location.hash === '#' || !currentParsed;
+      syncBrowserUrl(targetHash, isInitialOrEmpty);
+    }
+  }, [activeTab, viewingInvoice]);
+
+  // Handle browser Back / Forward history transitions
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleLocationChange = () => {
+      const hash = window.location.hash;
+      const parsed = parseNavigationHash(hash);
+      if (!parsed) {
+        if (activeTab !== 'workspace') {
+          if (hasPendingCloudSyncRef.current) {
+            flushCloudSync();
+          }
+          setActiveTab('workspace');
+          setViewingInvoice(null);
+        }
+        return;
+      }
+
+      if (parsed.tab === 'invoices' && parsed.invoiceId) {
+        const target = invoices.find((inv) => inv.id === parsed.invoiceId);
+        if (target) {
+          if (activeTab === 'workspace' && hasPendingCloudSyncRef.current) {
+            flushCloudSync();
+          }
+          setViewingInvoice(target);
+          setActiveTab('invoices');
+          return;
+        }
+      }
+
+      if (activeTab === 'workspace' && parsed.tab !== 'workspace' && hasPendingCloudSyncRef.current) {
+        flushCloudSync();
+      }
+      setViewingInvoice(null);
+      setActiveTab(parsed.tab);
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+    };
+  }, [activeTab, invoices, flushCloudSync]);
 
   // Handler: Start New Clean Bill (Creates new independent draft)
   const handleStartNewBill = async () => {
