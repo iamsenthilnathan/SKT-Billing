@@ -127,4 +127,42 @@ describe('Server Health and Authentication Gate', () => {
     const json = JSON.parse(res.body);
     expect(json.error).toContain('Unauthorized: Invalid business key');
   });
+
+  it('allows unauthenticated HEAD /api/health with 200 OK without content body', async () => {
+    const res = await makeRequest({ path: '/api/health', method: 'HEAD' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('application/json');
+    expect(res.body).toBe('');
+  });
+
+  it('correctly handles reverse-proxy requests with x-forwarded-proto: https without emitting any redirect', async () => {
+    const res = await makeRequest({
+      path: '/',
+      method: 'GET',
+      headers: {
+        'x-forwarded-proto': 'https',
+        'x-forwarded-host': 'skt-billing-production.up.railway.app',
+        'Authorization': validBasicAuth,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['location']).toBeUndefined();
+    expect(res.headers['content-type']).toContain('text/html');
+  });
+
+  it('does not emit an HTTP redirect or loop when x-forwarded-proto is http', async () => {
+    const res = await makeRequest({
+      path: '/',
+      method: 'GET',
+      headers: {
+        'x-forwarded-proto': 'http',
+        'x-forwarded-host': 'skt-billing-production.up.railway.app',
+      },
+    });
+    // Remains protected by Basic Auth challenge; does NOT emit a 301/302 redirect
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['location']).toBeUndefined();
+    expect(res.headers['www-authenticate']).toBeDefined();
+  });
 });
+

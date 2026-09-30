@@ -71,6 +71,7 @@ export const INITIAL_PARTIES: Party[] = [
     gstin: '33ABCDE1234F1Z9',
     phone: '9842111223',
     notes: 'Regular customer for cotton and bio-wash lots',
+    isArchived: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   },
@@ -81,6 +82,7 @@ export const INITIAL_PARTIES: Party[] = [
     gstin: '33BCDEF2345G2Z0',
     phone: '9842233445',
     notes: 'Heat setting and dark shade dyeing',
+    isArchived: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   },
@@ -91,6 +93,7 @@ export const INITIAL_PARTIES: Party[] = [
     gstin: '33CDEFG3456H3Z1',
     phone: '9842355667',
     notes: 'Single jersey and interlock fabrics',
+    isArchived: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   },
@@ -230,7 +233,13 @@ class StorageService {
   getParties(): Party[] {
     try {
       const data = safeStorage.getItem(PARTIES_KEY);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed: Party[] = JSON.parse(data);
+        return parsed.map((p) => ({
+          ...p,
+          isArchived: Boolean(p.isArchived),
+        }));
+      }
       this.saveParties(INITIAL_PARTIES);
       return INITIAL_PARTIES;
     } catch {
@@ -238,21 +247,74 @@ class StorageService {
     }
   }
 
+  getActiveParties(): Party[] {
+    return this.getParties().filter((p) => !p.isArchived);
+  }
+
   saveParties(parties: Party[]): void {
     safeStorage.setItem(PARTIES_KEY, JSON.stringify(parties));
   }
 
-  addParty(party: Omit<Party, 'id' | 'createdAt' | 'updatedAt'>): Party {
+  addParty(party: Omit<Party, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Party {
     const parties = this.getParties();
     const newParty: Party = {
       ...party,
-      id: `party_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: party.id || `party_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      isArchived: Boolean(party.isArchived),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     parties.unshift(newParty);
     this.saveParties(parties);
     return newParty;
+  }
+
+  updateParty(party: Party): void {
+    const parties = this.getParties();
+    const idx = parties.findIndex((p) => p.id === party.id);
+    if (idx >= 0) {
+      parties[idx] = {
+        ...parties[idx],
+        ...party,
+        isArchived: Boolean(party.isArchived),
+        updatedAt: new Date().toISOString(),
+      };
+      this.saveParties(parties);
+    }
+  }
+
+  archiveParty(partyId: string): void {
+    const parties = this.getParties();
+    const target = parties.find((p) => p.id === partyId);
+    if (target) {
+      target.isArchived = true;
+      target.updatedAt = new Date().toISOString();
+      this.saveParties(parties);
+    }
+  }
+
+  restoreParty(partyId: string): void {
+    const parties = this.getParties();
+    const target = parties.find((p) => p.id === partyId);
+    if (target) {
+      target.isArchived = false;
+      target.updatedAt = new Date().toISOString();
+      this.saveParties(parties);
+    }
+  }
+
+  isPartyReferenced(partyId: string): boolean {
+    return this.getInvoices().some((inv) => inv.partyId === partyId);
+  }
+
+  deleteParty(partyId: string): void {
+    if (this.isPartyReferenced(partyId)) {
+      throw new Error('Cannot delete customer: Referenced by existing invoice. Archive the customer instead.');
+    }
+    const parties = this.getParties().filter((p) => p.id !== partyId);
+    this.saveParties(parties);
+    const rates = this.getRateMemory().filter((r) => r.partyId !== partyId);
+    this.saveRateMemory(rates);
   }
 
   getRateMemory(): RateMemoryItem[] {

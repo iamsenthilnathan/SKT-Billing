@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS parties (
   gstin TEXT NOT NULL,
   phone TEXT NOT NULL,
   notes TEXT,
+  is_archived INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -107,6 +108,11 @@ try {
 }
 try {
   db.exec('ALTER TABLE settings ADD COLUMN opening_invoice_sequences TEXT;');
+} catch (_) {
+  // Column already exists
+}
+try {
+  db.exec('ALTER TABLE parties ADD COLUMN is_archived INTEGER DEFAULT 0;');
 } catch (_) {
   // Column already exists
 }

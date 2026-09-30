@@ -636,6 +636,22 @@ export function App() {
     setParties(storageService.getParties());
   };
 
+  const handleArchiveParty = async (partyId: string) => {
+    await syncService.archiveParty(partyId);
+    setParties(storageService.getParties());
+  };
+
+  const handleRestoreParty = async (partyId: string) => {
+    await syncService.restoreParty(partyId);
+    setParties(storageService.getParties());
+  };
+
+  const handleDeleteParty = async (partyId: string) => {
+    await syncService.deleteParty(partyId);
+    setParties(storageService.getParties());
+    setRateMemory(storageService.getRateMemory());
+  };
+
   // Settings Handlers
   const handleSaveSettings = async (newSettings: BusinessSettings) => {
     setSettings(newSettings);
@@ -823,9 +839,13 @@ export function App() {
           /* VIEW: PARTIES DIRECTORY */
           <PartyManager
             parties={parties}
+            invoices={invoices}
             rateMemory={rateMemory}
             onAddParty={handleAddParty}
             onUpdateParty={handleUpdateParty}
+            onArchiveParty={handleArchiveParty}
+            onRestoreParty={handleRestoreParty}
+            onDeleteParty={handleDeleteParty}
           />
         ) : (
           /* VIEW: SETTINGS & BACKUP */

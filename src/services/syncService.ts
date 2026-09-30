@@ -15,7 +15,7 @@ export interface SyncState {
 
 interface QueuedAction {
   id: string;
-  type: 'save_draft' | 'save_party' | 'save_settings' | 'record_payment';
+  type: 'save_draft' | 'save_party' | 'save_settings' | 'record_payment' | 'delete_party';
   payload: any;
   queuedAt: string;
 }
@@ -252,6 +252,7 @@ class SyncService {
         gstin: party.gstin || '',
         phone: party.phone || '',
         notes: party.notes,
+        isArchived: Boolean(party.isArchived),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -260,6 +261,101 @@ class SyncService {
       this.queueAction('save_party', tempParty);
       this.setStatus('offline');
       return tempParty;
+    }
+  }
+
+  public async archiveParty(partyId: string): Promise<boolean> {
+    storageService.archiveParty(partyId);
+    try {
+      this.setStatus('syncing');
+      const res = await fetch(`/api/parties/${partyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify({ isArchived: true }),
+      });
+      if (!res.ok) throw new Error('Archive sync failed');
+      const updated = await res.json();
+      const parties = storageService.getParties();
+      const idx = parties.findIndex((p) => p.id === partyId);
+      if (idx >= 0) {
+        parties[idx] = { ...parties[idx], isArchived: true, updatedAt: updated.updatedAt || new Date().toISOString() };
+        storageService.saveParties(parties);
+      }
+      this.setStatus('synced');
+      this.notifyListeners({ parties }, 'synced');
+      return true;
+    } catch {
+      this.queueAction('save_party', { id: partyId, isArchived: true });
+      this.setStatus('offline');
+      return true;
+    }
+  }
+
+  public async restoreParty(partyId: string): Promise<boolean> {
+    storageService.restoreParty(partyId);
+    try {
+      this.setStatus('syncing');
+      const res = await fetch(`/api/parties/${partyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify({ isArchived: false }),
+      });
+      if (!res.ok) throw new Error('Restore sync failed');
+      const updated = await res.json();
+      const parties = storageService.getParties();
+      const idx = parties.findIndex((p) => p.id === partyId);
+      if (idx >= 0) {
+        parties[idx] = { ...parties[idx], isArchived: false, updatedAt: updated.updatedAt || new Date().toISOString() };
+        storageService.saveParties(parties);
+      }
+      this.setStatus('synced');
+      this.notifyListeners({ parties }, 'synced');
+      return true;
+    } catch {
+      this.queueAction('save_party', { id: partyId, isArchived: false });
+      this.setStatus('offline');
+      return true;
+    }
+  }
+
+  public async deleteParty(partyId: string): Promise<boolean> {
+    if (storageService.isPartyReferenced(partyId)) {
+      throw new Error('Cannot delete customer: Referenced by existing invoice. Archive the customer instead.');
+    }
+
+    try {
+      this.setStatus('syncing');
+      const res = await fetch(`/api/parties/${partyId}`, {
+        method: 'DELETE',
+        headers: {
+          'X-Business-Key': BUSINESS_KEY,
+        },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Customer deletion failed');
+      }
+
+      storageService.deleteParty(partyId);
+      this.setStatus('synced');
+      this.notifyListeners({ parties: storageService.getParties(), rateMemory: storageService.getRateMemory() }, 'synced');
+      return true;
+    } catch (err: any) {
+      if (err.message && err.message.includes('Referenced by invoice')) {
+        throw err;
+      }
+      storageService.deleteParty(partyId);
+      this.queueAction('delete_party', { id: partyId });
+      this.setStatus('offline');
+      this.notifyListeners({ parties: storageService.getParties(), rateMemory: storageService.getRateMemory() }, 'offline');
+      return true;
     }
   }
 
@@ -395,10 +491,18 @@ class SyncService {
               body: JSON.stringify(item.payload),
             });
           } else if (item.type === 'save_party') {
-            await fetch('/api/parties', {
-              method: 'POST',
+            const isEdit = Boolean(item.payload.id && !item.payload.id.startsWith('party_temp_'));
+            const url = isEdit ? `/api/parties/${item.payload.id}` : '/api/parties';
+            const method = isEdit ? 'PUT' : 'POST';
+            await fetch(url, {
+              method,
               headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
               body: JSON.stringify(item.payload),
+            });
+          } else if (item.type === 'delete_party') {
+            await fetch(`/api/parties/${item.payload.id}`, {
+              method: 'DELETE',
+              headers: { 'X-Business-Key': BUSINESS_KEY },
             });
           } else if (item.type === 'save_settings') {
             await fetch('/api/settings', {

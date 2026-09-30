@@ -87,6 +87,7 @@ async function handleApiRequest(req, res, next) {
         gstin: p.gstin,
         phone: p.phone,
         notes: p.notes,
+        isArchived: Boolean(p.is_archived),
         createdAt: p.created_at,
         updatedAt: p.updated_at,
       }));
@@ -241,6 +242,7 @@ async function handleApiRequest(req, res, next) {
           gstin: p.gstin,
           phone: p.phone,
           notes: p.notes,
+          isArchived: Boolean(p.is_archived),
           createdAt: p.created_at,
           updatedAt: p.updated_at,
         })));
@@ -254,13 +256,14 @@ async function handleApiRequest(req, res, next) {
 
         const partyId = p.id || `party_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const now = new Date().toISOString();
+        const isArchived = p.isArchived ? 1 : 0;
 
         const insert = db.prepare(`
-          INSERT INTO parties (id, name, address, gstin, phone, notes, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO parties (id, name, address, gstin, phone, notes, is_archived, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
-        insert.run(partyId, p.name.trim(), p.address.trim(), p.gstin.trim().toUpperCase(), p.phone.trim(), p.notes || null, now, now);
+        insert.run(partyId, p.name.trim(), p.address.trim(), p.gstin.trim().toUpperCase(), p.phone.trim(), p.notes || null, isArchived, now, now);
 
         return sendJson(res, 201, {
           id: partyId,
@@ -269,6 +272,7 @@ async function handleApiRequest(req, res, next) {
           gstin: p.gstin.trim().toUpperCase(),
           phone: p.phone.trim(),
           notes: p.notes || undefined,
+          isArchived: Boolean(isArchived),
           createdAt: now,
           updatedAt: now,
         });
@@ -279,19 +283,50 @@ async function handleApiRequest(req, res, next) {
       const partyId = pathname.replace('/parties/', '');
       if (req.method === 'PUT') {
         const p = await parseJsonBody(req);
+        const existing = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
+        if (!existing) {
+          return sendJson(res, 404, { error: 'Party not found' });
+        }
+
+        const name = p.name !== undefined ? p.name.trim() : existing.name;
+        const address = p.address !== undefined ? p.address.trim() : existing.address;
+        const gstin = p.gstin !== undefined ? p.gstin.trim().toUpperCase() : existing.gstin;
+        const phone = p.phone !== undefined ? p.phone.trim() : existing.phone;
+        const notes = p.notes !== undefined ? (p.notes ? p.notes.trim() : null) : existing.notes;
+        const isArchived = p.isArchived !== undefined ? (p.isArchived ? 1 : 0) : existing.is_archived;
         const now = new Date().toISOString();
+
         const update = db.prepare(`
           UPDATE parties SET
-            name = ?, address = ?, gstin = ?, phone = ?, notes = ?, updated_at = ?
+            name = ?, address = ?, gstin = ?, phone = ?, notes = ?, is_archived = ?, updated_at = ?
           WHERE id = ?
         `);
-        update.run(p.name.trim(), p.address.trim(), p.gstin.trim().toUpperCase(), p.phone.trim(), p.notes || null, now, partyId);
-        return sendJson(res, 200, { success: true, id: partyId, updatedAt: now });
+        update.run(name, address, gstin, phone, notes, isArchived, now, partyId);
+        return sendJson(res, 200, {
+          success: true,
+          id: partyId,
+          name,
+          address,
+          gstin,
+          phone,
+          notes: notes || undefined,
+          isArchived: Boolean(isArchived),
+          updatedAt: now,
+        });
       }
 
       if (req.method === 'DELETE') {
+        const refInvoice = db.prepare('SELECT id, invoice_number FROM invoices WHERE party_id = ? LIMIT 1').get(partyId);
+        if (refInvoice) {
+          return sendJson(res, 400, {
+            error: `Cannot delete customer: Referenced by invoice ${refInvoice.invoice_number || refInvoice.id}. Archive this customer instead.`,
+            referenced: true,
+            invoiceNumber: refInvoice.invoice_number,
+          });
+        }
         db.prepare('DELETE FROM parties WHERE id = ?').run(partyId);
-        return sendJson(res, 200, { success: true });
+        db.prepare('DELETE FROM rate_memory WHERE party_id = ?').run(partyId);
+        return sendJson(res, 200, { success: true, deletedId: partyId });
       }
     }
 

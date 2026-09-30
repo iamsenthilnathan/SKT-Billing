@@ -23,6 +23,7 @@ export interface Party {
   gstin: string; // Mandatory 15-char Indian GSTIN
   phone: string; // Mandatory 10-digit Indian Mobile Number
   notes?: string;
+  isArchived?: boolean;
   createdAt: string;
   updatedAt: string;
 }

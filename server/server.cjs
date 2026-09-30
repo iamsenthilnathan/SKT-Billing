@@ -138,14 +138,22 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  // Reverse proxy header resolution (Railway / Render / Nginx)
+  const forwardedProto = (req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+  const forwardedHost = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+  const urlObj = new URL(req.url, `${forwardedProto}://${forwardedHost}`);
   const pathname = decodeURIComponent(urlObj.pathname);
 
   // 1. Unauthenticated health check endpoint for deployment orchestrators (Railway / Render)
-  if ((pathname === '/api/health' || pathname === '/health') && req.method === 'GET') {
+  // Supports both GET and HEAD requests without requiring Basic Auth.
+  if ((pathname === '/api/health' || pathname === '/health') && (req.method === 'GET' || req.method === 'HEAD')) {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ status: 'ok', database: 'sqlite', timestamp: new Date().toISOString() }));
+    if (req.method === 'HEAD') {
+      res.end();
+    } else {
+      res.end(JSON.stringify({ status: 'ok', database: 'sqlite', timestamp: new Date().toISOString() }));
+    }
     return;
   }
 

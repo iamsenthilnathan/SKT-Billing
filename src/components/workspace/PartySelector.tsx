@@ -23,6 +23,8 @@ export const PartySelector: React.FC<PartySelectorProps> = ({
   provisionalInvoiceNumber,
   hasAttemptedFinalize = false,
 }) => {
+  // Only active parties appear in the selection chips for new bills
+  const activeParties = parties.filter((p) => !p.isArchived);
   const selectedParty = parties.find((p) => p.id === selectedPartyId);
 
   return (
@@ -67,7 +69,7 @@ export const PartySelector: React.FC<PartySelectorProps> = ({
       <div className="mt-4">
         <label className="block text-xs font-medium text-slate-500 mb-2">Frequent Customers:</label>
         <div className="flex flex-wrap gap-2">
-          {parties.map((party) => {
+          {activeParties.map((party) => {
             const isSelected = party.id === selectedPartyId;
             return (
               <button
@@ -96,7 +98,14 @@ export const PartySelector: React.FC<PartySelectorProps> = ({
       {selectedParty && (
         <div className="mt-4 p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="font-semibold text-sm text-slate-900">{selectedParty.name}</div>
+            <div className="flex items-center gap-2">
+              <div className="font-semibold text-sm text-slate-900">{selectedParty.name}</div>
+              {selectedParty.isArchived && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-semibold border border-amber-200">
+                  Archived Customer
+                </span>
+              )}
+            </div>
             <div className="text-xs text-slate-600 max-w-xl">{selectedParty.address}</div>
           </div>
           <div className="flex flex-wrap items-center gap-3 self-start sm:self-center">
