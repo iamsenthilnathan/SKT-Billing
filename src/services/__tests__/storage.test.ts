@@ -320,4 +320,32 @@ describe('Storage Service & Sequence Engine', () => {
     expect(storageService.getDraft('draft_A')).toBeNull();
     expect(storageService.getDraft('draft_B')).toBeDefined();
   });
+
+  it('storage initialization on an empty state returns 0 invoices and never seeds sample invoices', () => {
+    storageService.clearAll();
+    const invoices = storageService.getInvoices();
+    expect(invoices).toEqual([]);
+    expect(invoices.length).toBe(0);
+
+    // Repeated calls also return empty array and do not write sample data
+    const again = storageService.getInvoices();
+    expect(again.length).toBe(0);
+  });
+
+  it('when 0 invoices exist and openingInvoiceSequences has 2026-27 = 56, next sequence is 56 and preview is SKT/2026-27/056', () => {
+    storageService.clearAll();
+    expect(storageService.getInvoices().length).toBe(0);
+
+    const settings = storageService.getSettings();
+    storageService.saveSettings({
+      ...settings,
+      openingInvoiceSequences: {
+        '2026-27': 56,
+      },
+    });
+
+    expect(storageService.getNextInvoiceSequence('2026-27')).toBe(56);
+    expect(storageService.getNextInvoiceNumberPreview('2026-27')).toBe('SKT/2026-27/056');
+  });
 });
+

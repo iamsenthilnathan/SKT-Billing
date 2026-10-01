@@ -124,94 +124,7 @@ export const INITIAL_RATE_MEMORY: RateMemoryItem[] = [
   },
 ];
 
-export const INITIAL_INVOICES: Invoice[] = [
-  {
-    id: 'inv_sample_1',
-    invoiceNumber: 'SKT/2025-26/001',
-    financialYear: '2025-26',
-    sequenceNumber: 1,
-    invoiceDate: '2026-03-28',
-    status: 'finalized',
-    partyId: 'party_1',
-    partyNameSnapshot: 'ABC Fabrics Private Limited',
-    partyAddressSnapshot: '45, Cotton Market Ring Road, Tirupur - 641 604, Tamil Nadu',
-    partyGstinSnapshot: '33ABCDE1234F1Z9',
-    partyPhoneSnapshot: '9842111223',
-    bankNameSnapshot: 'State Bank of India',
-    branchSnapshot: 'Tirupur Main',
-    accountNumberSnapshot: '12345678901234',
-    ifscCodeSnapshot: 'SBIN0001234',
-    dcs: [
-      {
-        id: 'dc_sample_1',
-        ourDcNumber: '120',
-        partyDcNumber: '126',
-        partyDcDate: '2026-03-20',
-        sortOrder: 0,
-        workEntries: [
-          {
-            id: 'w_sample_1',
-            description: 'Lt. Maroon',
-            rolls: 2,
-            weightDisplay: '210.000',
-            weightKg: 210,
-            rate: 45,
-            amount: 9450,
-            sortOrder: 0,
-          },
-          {
-            id: 'w_sample_2',
-            description: 'Skin',
-            rolls: 3,
-            weightDisplay: '310.500',
-            weightKg: 310.5,
-            rate: 45,
-            amount: 13972.5,
-            sortOrder: 1,
-          },
-        ],
-      },
-      {
-        id: 'dc_sample_2',
-        ourDcNumber: '121',
-        partyDcNumber: '128',
-        partyDcDate: '2026-03-26',
-        sortOrder: 1,
-        workEntries: [
-          {
-            id: 'w_sample_3',
-            description: 'White',
-            rolls: 1,
-            weightDisplay: '105.000',
-            weightKg: 105,
-            rate: 30,
-            amount: 3150,
-            sortOrder: 0,
-          },
-        ],
-      },
-    ],
-    calculations: {
-      totalRolls: 6,
-      totalWeightKg: 625.5,
-      subtotal: 26572.5,
-      cgstRate: 2.5,
-      cgstAmount: 664.31,
-      sgstRate: 2.5,
-      sgstAmount: 664.31,
-      preRoundTotal: 27901.12,
-      roundOff: -0.12,
-      totalAmount: 27901,
-      totalAmountInWords: 'Rupees Twenty Seven Thousand Nine Hundred One Only',
-    },
-    paymentStatus: 'unpaid',
-    paidAmount: 0,
-    outstandingAmount: 27901,
-    createdAt: '2026-03-28T10:00:00.000Z',
-    updatedAt: '2026-03-28T10:00:00.000Z',
-    finalizedAt: '2026-03-28T10:00:00.000Z',
-  },
-];
+export const INITIAL_INVOICES: Invoice[] = [];
 
 class StorageService {
   clearAll(): void {
@@ -373,10 +286,9 @@ class StorageService {
     try {
       const data = safeStorage.getItem(INVOICES_KEY);
       if (data) return JSON.parse(data);
-      this.saveInvoices(INITIAL_INVOICES);
-      return INITIAL_INVOICES;
+      return [];
     } catch {
-      return INITIAL_INVOICES;
+      return [];
     }
   }
 

@@ -24,6 +24,24 @@ describe('Invoice Cancellation Backend API & Safeguards', () => {
   let testPort;
 
   beforeAll(async () => {
+    // Insert test fixture invoice inv_sample_1
+    db.prepare(`
+      INSERT INTO invoices (
+        id, invoice_number, financial_year, sequence_number, invoice_date, status,
+        party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
+        bank_name_snapshot, branch_snapshot, account_number_snapshot, ifsc_code_snapshot,
+        dcs_json, calculations_json, payment_status, paid_amount, outstanding_amount, payments_json,
+        created_at, updated_at, finalized_at
+      ) VALUES (
+        'inv_sample_1', 'SKT/2025-26/001', '2025-26', 1, '2026-03-28', 'finalized',
+        'party_1', 'ABC Fabrics Private Limited', '45, Cotton Market Ring Road, Tirupur - 641 604, Tamil Nadu', '33ABCDE1234F1Z9', '9842111223',
+        'State Bank of India', 'Tirupur Main', '12345678901234', 'SBIN0001234',
+        '[]', '{"subtotal":23422.5,"cgstRate":2.5,"sgstRate":2.5,"cgstAmount":585.56,"sgstAmount":585.56,"gstTotal":1171.12,"rawTotalAmount":24593.62,"roundOff":0.38,"totalAmount":24594,"totalRolls":5,"totalWeightKg":520.5,"totalAmountInWords":"Rupees Twenty Four Thousand Five Hundred Ninety Four Only"}',
+        'unpaid', 0, 24594, '[]',
+        datetime('now'), datetime('now'), datetime('now')
+      )
+    `).run();
+
     await new Promise((resolve) => {
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
@@ -108,7 +126,7 @@ describe('Invoice Cancellation Backend API & Safeguards', () => {
   });
 
   it('POST /api/invoices/:id/cancel marks a finalized invoice as cancelled with metadata', async () => {
-    // inv_sample_1 was created by default seeds in testDataDir
+    // inv_sample_1 was created by test fixture in beforeAll
     const res = await makeRequest({
       path: '/api/invoices/inv_sample_1/cancel',
       method: 'POST',
