@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText,
   Clock,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Layers,
   LogOut,
+  ChevronDown,
 } from 'lucide-react';
 import type { SyncStatus } from '../services/syncService';
 
@@ -33,6 +34,36 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onLogout,
 }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on click outside or escape key
+  useEffect(() => {
+    if (!isMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMenuOpen]);
+
+  const initial = (currentUser ? currentUser.trim().charAt(0) : 'S').toUpperCase();
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
@@ -160,26 +191,80 @@ export const Navbar: React.FC<NavbarProps> = ({
               <SettingsIcon className="w-4 h-4 shrink-0" />
             </button>
 
-            {/* 6. User Info & Logout Action */}
+            {/* 6. Authenticated Operator Identity & Dropdown Menu */}
             {onLogout && (
-              <div className="flex items-center gap-1.5 ml-1 pl-1 border-l border-slate-200">
-                {currentUser && (
-                  <span
-                    className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 max-w-[120px] truncate"
-                    title={`Logged in as ${currentUser}`}
-                  >
-                    {currentUser}
-                  </span>
-                )}
+              <div className="relative ml-1 pl-1 sm:ml-2 sm:pl-2 border-l border-slate-200" ref={menuRef}>
+                {/* Unified Operator Control */}
                 <button
                   type="button"
-                  onClick={onLogout}
-                  className="p-1.5 sm:px-2.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center gap-1.5 border border-slate-200/80"
-                  title={currentUser ? `Sign Out (${currentUser})` : 'Sign Out'}
+                  onClick={() => setIsMenuOpen((prev) => !prev)}
+                  aria-expanded={isMenuOpen}
+                  aria-haspopup="true"
+                  aria-label={currentUser ? `Operator account: ${currentUser}` : 'Operator account'}
+                  className={`flex items-center gap-1.5 p-1 sm:px-2 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer ${
+                    isMenuOpen
+                      ? 'bg-slate-100 text-slate-900'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
                 >
-                  <LogOut className="w-4 h-4 shrink-0 text-slate-400" />
-                  <span className="hidden xl:inline text-xs">Sign Out</span>
+                  {/* Avatar Circle */}
+                  <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-indigo-50 border border-indigo-200/80 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 select-none shadow-2xs">
+                    {initial}
+                  </span>
+
+                  {/* Username (hidden on narrow mobile < 640px to prevent overflow, visible on tablet/desktop) */}
+                  <span className="hidden sm:inline-block max-w-[100px] md:max-w-[130px] truncate font-medium text-xs sm:text-sm text-slate-700">
+                    {currentUser || 'Operator'}
+                  </span>
+
+                  {/* Subtle Chevron */}
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 shrink-0 ${
+                      isMenuOpen ? 'rotate-180 text-slate-600' : ''
+                    }`}
+                  />
                 </button>
+
+                {/* Operator Dropdown Card */}
+                {isMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-orientation="vertical"
+                    className="absolute right-0 mt-1.5 w-52 sm:w-56 bg-white rounded-xl shadow-lg shadow-slate-200/70 border border-slate-200/90 py-1.5 z-50 text-slate-800 animate-in fade-in duration-100"
+                  >
+                    {/* Operator Header Card */}
+                    <div className="px-3.5 py-2.5 border-b border-slate-100 flex items-center gap-2.5">
+                      <span className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 select-none">
+                        {initial}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900 truncate leading-snug">
+                          {currentUser || 'Operator'}
+                        </p>
+                        <p className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block shrink-0" />
+                          <span>Active session</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Actions Section */}
+                    <div className="p-1">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          onLogout();
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0 text-slate-400" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </nav>

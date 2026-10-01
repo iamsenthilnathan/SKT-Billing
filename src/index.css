@@ -1,6 +1,18 @@
 @import "tailwindcss";
 
 @layer base {
+  @media (min-width: 640px) {
+    html {
+      scrollbar-gutter: stable;
+    }
+
+    @supports not (scrollbar-gutter: stable) {
+      html {
+        overflow-y: scroll;
+      }
+    }
+  }
+
   body {
     @apply bg-slate-50 text-slate-900 antialiased font-sans;
     min-height: 100vh;
@@ -20,6 +32,8 @@
     padding: 0 !important;
     width: 100% !important;
     height: auto !important;
+    scrollbar-gutter: auto !important;
+    overflow-y: visible !important;
   }
 
   /* Completely remove application UI from document flow */
