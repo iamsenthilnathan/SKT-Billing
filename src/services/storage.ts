@@ -384,10 +384,42 @@ class StorageService {
     safeStorage.setItem(INVOICES_KEY, JSON.stringify(invoices));
   }
 
+  getInvoice(id: string): Invoice | undefined {
+    return this.getInvoices().find((inv) => inv.id === id);
+  }
+
+  cancelInvoice(invoiceId: string, reason?: string): Invoice {
+    const invoices = this.getInvoices();
+    const idx = invoices.findIndex((inv) => inv.id === invoiceId);
+    if (idx === -1) {
+      throw new Error(`Invoice with id "${invoiceId}" not found`);
+    }
+    const inv = invoices[idx];
+    if (inv.status === 'cancelled') {
+      throw new Error('Invoice is already cancelled');
+    }
+    if (inv.status !== 'finalized') {
+      throw new Error(`Cannot cancel invoice with status "${inv.status}". Only finalized invoices can be cancelled.`);
+    }
+
+    const now = new Date().toISOString();
+    const updatedInvoice: Invoice = {
+      ...inv,
+      status: 'cancelled',
+      cancelledAt: now,
+      cancellationReason: reason?.trim() || undefined,
+      updatedAt: now,
+    };
+
+    invoices[idx] = updatedInvoice;
+    this.saveInvoices(invoices);
+    return updatedInvoice;
+  }
+
   getNextInvoiceSequence(financialYear: string, openingOverride?: number, invoicesList?: Invoice[]): number {
     const allInvoices = invoicesList || this.getInvoices();
     const invoices = allInvoices.filter(
-      (inv) => inv.financialYear === financialYear && inv.status === 'finalized' && inv.sequenceNumber
+      (inv) => inv.financialYear === financialYear && (inv.status === 'finalized' || inv.status === 'cancelled') && inv.sequenceNumber
     );
     const settings = this.getSettings();
     const opening = openingOverride !== undefined ? openingOverride : settings.openingInvoiceSequences?.[financialYear];

@@ -106,6 +106,8 @@ export interface Invoice {
   createdAt: string;
   updatedAt: string;
   finalizedAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
 }
 
 export interface PaymentRecord {

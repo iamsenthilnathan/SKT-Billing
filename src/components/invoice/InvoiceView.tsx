@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Printer, ArrowLeft, CreditCard, CheckCircle, FileText, Check } from 'lucide-react';
+import { Printer, ArrowLeft, CreditCard, CheckCircle, FileText, Check, Ban, AlertTriangle, X } from 'lucide-react';
 import type { Invoice, BusinessSettings } from '../../domain/types';
 
 interface InvoiceViewProps {
@@ -7,6 +7,7 @@ interface InvoiceViewProps {
   settings: BusinessSettings;
   onBackToWorkspace: () => void;
   onRecordPayment?: (amount: number, date: string, notes?: string) => void;
+  onCancelInvoice?: (invoiceId: string, reason?: string) => Promise<void> | void;
 }
 
 export const InvoiceView: React.FC<InvoiceViewProps> = ({
@@ -14,6 +15,7 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
   settings,
   onBackToWorkspace,
   onRecordPayment,
+  onCancelInvoice,
 }) => {
   const [activeView, setActiveView] = useState<'invoice' | 'payment'>('invoice');
   const [paymentAmount, setPaymentAmount] = useState<string>('');
@@ -21,6 +23,27 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
   const [paymentNotes, setPaymentNotes] = useState<string>('');
   const [paymentRecordedToast, setPaymentRecordedToast] = useState(false);
   const [printCopiesCount, setPrintCopiesCount] = useState<number>(1);
+
+  // Cancellation State
+  const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
+  const [cancelError, setCancelError] = useState<string>('');
+
+  const handleConfirmCancel = async () => {
+    if (!onCancelInvoice) return;
+    setIsCancelling(true);
+    setCancelError('');
+    try {
+      await onCancelInvoice(invoice.id, cancelReason);
+      setShowCancelModal(false);
+      setCancelReason('');
+    } catch (err: any) {
+      setCancelError(err.message || 'Failed to cancel invoice');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // Trigger browser print with exact number of identical copies (no copy-type labels!)
   const handlePrint = (copies: number) => {
@@ -150,8 +173,29 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
           </div>
         </div>
 
-        {/* Print Buttons */}
+        {/* Print & Action Buttons */}
         <div className="flex items-center gap-2">
+          {invoice.status === 'cancelled' ? (
+            <div className="px-3 py-1.5 rounded-xl bg-rose-100 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-1.5 uppercase tracking-wider">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              <span>Cancelled</span>
+            </div>
+          ) : invoice.status === 'finalized' && onCancelInvoice ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCancelError('');
+                setCancelReason('');
+                setShowCancelModal(true);
+              }}
+              className="px-3.5 py-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Cancel this finalized invoice"
+            >
+              <Ban className="w-4 h-4 text-rose-500" />
+              <span>Cancel Invoice</span>
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => handlePrint(1)}
@@ -211,13 +255,27 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
             <div className="p-4 rounded-xl bg-rose-50 border border-rose-200">
               <span className="text-xs text-rose-700 block">Outstanding Balance</span>
               <span className="text-xl font-bold text-rose-800 font-mono mt-1 block">
-                ₹{invoice.outstandingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                {invoice.status === 'cancelled'
+                  ? '₹0.00 (Cancelled)'
+                  : `₹${invoice.outstandingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
               </span>
             </div>
           </div>
 
-          {/* Record Payment Form */}
-          {invoice.outstandingAmount > 0 ? (
+          {/* Record Payment Form or Cancellation Banner */}
+          {invoice.status === 'cancelled' ? (
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm font-semibold flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <div className="font-bold">This invoice has been CANCELLED.</div>
+                <div className="text-xs font-normal text-rose-700 mt-0.5">
+                  Payments cannot be recorded on a cancelled invoice.
+                  {invoice.cancelledAt && ` Cancelled on ${formatDisplayDate(invoice.cancelledAt.split('T')[0])}.`}
+                  {invoice.cancellationReason && ` Reason: "${invoice.cancellationReason}".`}
+                </div>
+              </div>
+            </div>
+          ) : invoice.outstandingAmount > 0 ? (
             <form onSubmit={handleAddPayment} className="p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-4">
               <h4 className="text-sm font-semibold text-slate-800">Record Received Payment</h4>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -321,6 +379,14 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
                 </div>
               </div>
 
+              {/* CANCELLED STATUS BANNER (Printed & Previewed) */}
+              {invoice.status === 'cancelled' && (
+                <div className="my-2.5 py-1.5 px-3 bg-rose-50 border-2 border-rose-600 text-rose-700 text-center font-black tracking-widest text-xs uppercase rounded">
+                  *** CANCELLED INVOICE *** {invoice.cancelledAt ? `(${formatDisplayDate(invoice.cancelledAt.split('T')[0])})` : ''}
+                  {invoice.cancellationReason ? ` — Reason: ${invoice.cancellationReason}` : ''}
+                </div>
+              )}
+
               {/* 2. PARTY + INVOICE METADATA */}
               <div className="grid grid-cols-12 gap-6 py-4 sm:py-5 border-b border-slate-300 items-start">
                 {/* Left: Billed To Customer */}
@@ -356,9 +422,16 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
                       Tax Invoice No
                     </span>
-                    <span className="font-mono font-black text-lg sm:text-xl text-slate-900 tracking-tight block mt-0.5">
-                      {invoice.invoiceNumber || 'PROVISIONAL'}
-                    </span>
+                    <div className="flex items-center justify-end gap-2 mt-0.5">
+                      <span className={`font-mono font-black text-lg sm:text-xl tracking-tight block ${invoice.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                        {invoice.invoiceNumber || 'PROVISIONAL'}
+                      </span>
+                      {invoice.status === 'cancelled' && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-rose-600 text-white">
+                          CANCELLED
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -545,6 +618,88 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
           </div>
         ))}
       </div>
+
+      {/* Cancellation Confirmation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 print:hidden">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <button
+                type="button"
+                onClick={() => !isCancelling && setShowCancelModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                disabled={isCancelling}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-slate-900">
+                Cancel Invoice {invoice.invoiceNumber}?
+              </h3>
+              <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                Are you sure you want to cancel this finalized invoice? This action is permanent and cannot be undone.
+              </p>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                <span>Important Rules</span>
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-[11px] text-amber-900">
+                <li>The invoice record remains in the database for audit history.</li>
+                <li>Invoice number <strong>{invoice.invoiceNumber}</strong> will NOT be deleted.</li>
+                <li>Invoice number <strong>{invoice.invoiceNumber}</strong> will NEVER be reused.</li>
+                <li>Receivables and ledger balance for this invoice will be voided.</li>
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Reason for cancellation (optional):
+              </label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Billed to wrong party, duplicate lot entered..."
+                className="w-full text-xs font-medium px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all outline-hidden text-slate-900"
+                disabled={isCancelling}
+              />
+            </div>
+
+            {cancelError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg font-medium">
+                {cancelError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                disabled={isCancelling}
+                className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Keep Invoice
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancel}
+                disabled={isCancelling}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm shadow-rose-200 cursor-pointer"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                <span>{isCancelling ? 'Cancelling...' : 'Yes, Cancel Invoice'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

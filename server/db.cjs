@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   payments_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  finalized_at TEXT NOT NULL
+  finalized_at TEXT NOT NULL,
+  cancelled_at TEXT,
+  cancellation_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS invoice_sequences (
@@ -113,6 +115,16 @@ try {
 }
 try {
   db.exec('ALTER TABLE parties ADD COLUMN is_archived INTEGER DEFAULT 0;');
+} catch (_) {
+  // Column already exists
+}
+try {
+  db.exec('ALTER TABLE invoices ADD COLUMN cancelled_at TEXT;');
+} catch (_) {
+  // Column already exists
+}
+try {
+  db.exec('ALTER TABLE invoices ADD COLUMN cancellation_reason TEXT;');
 } catch (_) {
   // Column already exists
 }

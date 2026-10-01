@@ -128,6 +128,8 @@ async function handleApiRequest(req, res, next) {
         createdAt: inv.created_at,
         updatedAt: inv.updated_at,
         finalizedAt: inv.finalized_at,
+        cancelledAt: inv.cancelled_at || undefined,
+        cancellationReason: inv.cancellation_reason || undefined,
       }));
 
       const rawDrafts = db.prepare('SELECT * FROM active_draft ORDER BY updated_at DESC').all();
@@ -501,7 +503,15 @@ async function handleApiRequest(req, res, next) {
       db.exec('BEGIN IMMEDIATE;');
       try {
         const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
-        if (!inv) throw new Error('Invoice not found');
+        if (!inv) {
+          db.exec('ROLLBACK;');
+          return sendJson(res, 404, { error: 'Invoice not found' });
+        }
+
+        if (inv.status === 'cancelled') {
+          db.exec('ROLLBACK;');
+          return sendJson(res, 400, { error: 'Cannot record payment on a cancelled invoice' });
+        }
 
         const currentPaid = inv.paid_amount || 0;
         const currentOutstanding = inv.outstanding_amount || 0;
@@ -531,6 +541,59 @@ async function handleApiRequest(req, res, next) {
 
         db.exec('COMMIT;');
         return sendJson(res, 200, { success: true, paidAmount: newPaid, outstandingAmount: newOutstanding, paymentStatus: newStatus });
+      } catch (err) {
+        db.exec('ROLLBACK;');
+        return sendJson(res, 500, { error: err.message });
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 5b. INVOICE CANCELLATION (/invoices/:id/cancel)
+    // ------------------------------------------------------------------------
+    if (pathname.includes('/invoices/') && pathname.endsWith('/cancel') && req.method === 'POST') {
+      const parts = pathname.split('/');
+      const invoiceId = parts[2];
+      const { reason } = await parseJsonBody(req);
+
+      db.exec('BEGIN IMMEDIATE;');
+      try {
+        const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
+        if (!inv) {
+          db.exec('ROLLBACK;');
+          return sendJson(res, 404, { error: 'Invoice not found' });
+        }
+
+        if (inv.status === 'cancelled') {
+          db.exec('ROLLBACK;');
+          return sendJson(res, 400, { error: 'Invoice is already cancelled' });
+        }
+
+        if (inv.status !== 'finalized') {
+          db.exec('ROLLBACK;');
+          return sendJson(res, 400, { error: `Cannot cancel invoice with status "${inv.status}". Only finalized invoices can be cancelled.` });
+        }
+
+        const now = new Date().toISOString();
+        const cancellationReason = reason && typeof reason === 'string' && reason.trim() ? reason.trim() : null;
+
+        db.prepare(`
+          UPDATE invoices SET
+            status = 'cancelled',
+            cancelled_at = ?,
+            cancellation_reason = ?,
+            updated_at = ?
+          WHERE id = ?
+        `).run(now, cancellationReason, now, invoiceId);
+
+        db.exec('COMMIT;');
+        return sendJson(res, 200, {
+          success: true,
+          id: invoiceId,
+          status: 'cancelled',
+          cancelledAt: now,
+          cancellationReason: cancellationReason || undefined,
+          updatedAt: now,
+        });
       } catch (err) {
         db.exec('ROLLBACK;');
         return sendJson(res, 500, { error: err.message });
@@ -647,13 +710,13 @@ async function handleApiRequest(req, res, next) {
               party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
               bank_name_snapshot, branch_snapshot, account_number_snapshot, ifsc_code_snapshot,
               dcs_json, calculations_json, payment_status, paid_amount, outstanding_amount, payments_json,
-              created_at, updated_at, finalized_at
+              created_at, updated_at, finalized_at, cancelled_at, cancellation_reason
             ) VALUES (
               ?, ?, ?, ?, ?, ?,
               ?, ?, ?, ?, ?,
               ?, ?, ?, ?,
               ?, ?, ?, ?, ?, ?,
-              ?, ?, ?
+              ?, ?, ?, ?, ?
             )
           `);
 
@@ -664,7 +727,8 @@ async function handleApiRequest(req, res, next) {
               inv.bankNameSnapshot, inv.branchSnapshot, inv.accountNumberSnapshot, inv.ifscCodeSnapshot,
               JSON.stringify(inv.dcs), JSON.stringify(inv.calculations), inv.paymentStatus || 'unpaid',
               inv.paidAmount || 0, inv.outstandingAmount || inv.calculations.totalAmount, JSON.stringify(inv.payments || []),
-              inv.createdAt || new Date().toISOString(), inv.updatedAt || new Date().toISOString(), inv.finalizedAt || new Date().toISOString()
+              inv.createdAt || new Date().toISOString(), inv.updatedAt || new Date().toISOString(), inv.finalizedAt || new Date().toISOString(),
+              inv.cancelledAt || null, inv.cancellationReason || null
             );
             if (res.changes > 0) migratedCount++;
           });

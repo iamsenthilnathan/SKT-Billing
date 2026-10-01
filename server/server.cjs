@@ -172,6 +172,10 @@ const server = http.createServer((req, res) => {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: err.message || 'Internal Server Error' }));
         }
+      } else if (!res.headersSent) {
+        res.statusCode = 404;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Endpoint not found' }));
       }
     });
     return;

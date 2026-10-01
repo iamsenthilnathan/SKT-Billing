@@ -428,6 +428,58 @@ class SyncService {
   }
 
   // --------------------------------------------------------------------------
+  // INVOICE CANCELLATION (Protected backend operation)
+  // --------------------------------------------------------------------------
+  public async cancelInvoice(invoiceId: string, reason?: string): Promise<Invoice> {
+    this.setStatus('syncing');
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Business-Key': BUSINESS_KEY,
+        },
+        body: JSON.stringify({ reason }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Cancellation failed with status ${res.status}`);
+      }
+
+      const result = await res.json();
+      const updated = storageService.cancelInvoice(invoiceId, reason);
+      if (result.cancelledAt) {
+        updated.cancelledAt = result.cancelledAt;
+      }
+      if (result.cancellationReason !== undefined) {
+        updated.cancellationReason = result.cancellationReason;
+      }
+      const invoices = storageService.getInvoices();
+      const idx = invoices.findIndex((i) => i.id === invoiceId);
+      if (idx >= 0) {
+        invoices[idx] = updated;
+        storageService.saveInvoices(invoices);
+      }
+
+      this.setStatus('synced');
+      this.notifyListeners({ invoices }, 'synced');
+      return updated;
+    } catch (err: any) {
+      if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
+        this.setStatus('synced');
+        throw err;
+      }
+      console.warn('Network offline during cancellation, applying local cancellation', err);
+      const updated = storageService.cancelInvoice(invoiceId, reason);
+      const invoices = storageService.getInvoices();
+      this.setStatus('offline');
+      this.notifyListeners({ invoices }, 'offline');
+      return updated;
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // SETTINGS SYNC
   // --------------------------------------------------------------------------
   public async saveSettings(settings: BusinessSettings): Promise<boolean> {

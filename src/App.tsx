@@ -688,6 +688,10 @@ export function App() {
   // Internal Payment Recording
   const handleRecordPayment = async (amount: number, date: string, notes?: string) => {
     if (!viewingInvoice) return;
+    if (viewingInvoice.status === 'cancelled') {
+      alert('Cannot record payment on a cancelled invoice.');
+      return;
+    }
 
     const newPaidAmount = Math.round((viewingInvoice.paidAmount + amount) * 100) / 100;
     const newOutstanding = Math.max(0, Math.round((viewingInvoice.calculations.totalAmount - newPaidAmount) * 100) / 100);
@@ -712,6 +716,19 @@ export function App() {
 
     // Sync to backend
     await syncService.recordPayment(viewingInvoice.id, amount, date, notes);
+  };
+
+  // Invoice Cancellation Handler
+  const handleCancelInvoice = async (invoiceId: string, reason?: string) => {
+    try {
+      const updatedInvoice = await syncService.cancelInvoice(invoiceId, reason);
+      const updatedList = storageService.getInvoices();
+      setInvoices(updatedList);
+      setViewingInvoice(updatedInvoice);
+    } catch (err: any) {
+      alert(`Failed to cancel invoice: ${err.message || 'Unknown error'}`);
+      throw err;
+    }
   };
 
   // Party Management Handlers
@@ -816,6 +833,7 @@ export function App() {
               switchToRemainingDraftOrNew();
             }}
             onRecordPayment={handleRecordPayment}
+            onCancelInvoice={handleCancelInvoice}
           />
         ) : activeTab === 'workspace' ? (
           /* VIEW: PRIMARY SUNDAY BILLING WORKSPACE */

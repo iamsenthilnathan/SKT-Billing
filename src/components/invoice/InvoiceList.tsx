@@ -42,7 +42,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortField>('recently_modified');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('all');
-  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<string>('finalized');
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<string>('all');
   const [dateFilterPreset, setDateFilterPreset] = useState<DateFilterPreset>('all');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -99,7 +99,13 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
     // 1. Filter
     const filtered = invoices.filter((inv) => {
       // Invoice Status filter (strict separation: drafts are kept in workspace)
-      if (invoiceStatusFilter !== 'all' && inv.status !== invoiceStatusFilter) {
+      if (invoiceStatusFilter === 'finalized' && inv.status !== 'finalized') {
+        return false;
+      }
+      if (invoiceStatusFilter === 'cancelled' && inv.status !== 'cancelled') {
+        return false;
+      }
+      if (invoiceStatusFilter === 'all' && inv.status === 'draft') {
         return false;
       }
 
@@ -197,6 +203,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
     let totalOutstanding = 0;
 
     processedInvoices.forEach((inv) => {
+      if (inv.status === 'cancelled') return;
       const amt = Number(inv.calculations?.totalAmount || 0);
       const paid = Number(inv.paidAmount || 0);
       const outstanding = Number(inv.outstandingAmount ?? (amt - paid));
@@ -365,8 +372,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
               onChange={(e) => setInvoiceStatusFilter(e.target.value)}
               className="w-full text-xs font-medium px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white text-slate-800 outline-hidden"
             >
-              <option value="finalized">Finalized (Default)</option>
               <option value="all">All Invoices</option>
+              <option value="finalized">Active / Finalized</option>
+              <option value="cancelled">Cancelled Only</option>
             </select>
           </div>
 
@@ -506,7 +514,16 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                     >
                       {/* Invoice # */}
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {inv.invoiceNumber || 'Draft'}
+                        <div className="flex items-center gap-2">
+                          <span className={inv.status === 'cancelled' ? 'line-through text-slate-500' : ''}>
+                            {inv.invoiceNumber || 'Draft'}
+                          </span>
+                          {inv.status === 'cancelled' && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200">
+                              Cancelled
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Date */}
@@ -548,28 +565,40 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
                       {/* Outstanding Amount */}
                       <td className="py-3.5 px-4 text-right font-mono whitespace-nowrap">
-                        <span
-                          className={`font-bold ${
-                            outstanding > 0 ? 'text-amber-700' : 'text-slate-400 font-normal'
-                          }`}
-                        >
-                          {formatCurrency(outstanding)}
-                        </span>
+                        {inv.status === 'cancelled' ? (
+                          <span className="text-slate-400 font-normal italic text-xs">
+                            Cancelled
+                          </span>
+                        ) : (
+                          <span
+                            className={`font-bold ${
+                              outstanding > 0 ? 'text-amber-700' : 'text-slate-400 font-normal'
+                            }`}
+                          >
+                            {formatCurrency(outstanding)}
+                          </span>
+                        )}
                       </td>
 
                       {/* Status */}
                       <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            inv.paymentStatus === 'paid'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : inv.paymentStatus === 'partially_paid'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {inv.paymentStatus ? inv.paymentStatus.replace('_', ' ') : 'unpaid'}
-                        </span>
+                        {inv.status === 'cancelled' ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200">
+                            Cancelled
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              inv.paymentStatus === 'paid'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : inv.paymentStatus === 'partially_paid'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {inv.paymentStatus ? inv.paymentStatus.replace('_', ' ') : 'unpaid'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Action */}
@@ -612,22 +641,28 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                   {/* Top Bar: Invoice # + Date + Payment Badge */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono text-sm font-bold text-slate-900 truncate">
+                      <span className={`font-mono text-sm font-bold text-slate-900 truncate ${inv.status === 'cancelled' ? 'line-through text-slate-500' : ''}`}>
                         {inv.invoiceNumber || 'Draft'}
                       </span>
                     </div>
 
-                    <span
-                      className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                        inv.paymentStatus === 'paid'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : inv.paymentStatus === 'partially_paid'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {inv.paymentStatus ? inv.paymentStatus.replace('_', ' ') : 'unpaid'}
-                    </span>
+                    {inv.status === 'cancelled' ? (
+                      <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200">
+                        Cancelled
+                      </span>
+                    ) : (
+                      <span
+                        className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          inv.paymentStatus === 'paid'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : inv.paymentStatus === 'partially_paid'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {inv.paymentStatus ? inv.paymentStatus.replace('_', ' ') : 'unpaid'}
+                      </span>
+                    )}
                   </div>
 
                   {/* Customer + Date */}
@@ -669,11 +704,15 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                       <div className="text-sm font-bold font-mono text-slate-900">
                         {formatCurrency(totalAmount)}
                       </div>
-                      {outstanding > 0 && (
+                      {inv.status === 'cancelled' ? (
+                        <div className="text-[11px] font-mono text-rose-700 font-semibold mt-0.5 italic">
+                          Status: Cancelled (No Balance Due)
+                        </div>
+                      ) : outstanding > 0 ? (
                         <div className="text-[11px] font-mono text-amber-700 font-semibold mt-0.5">
                           Outstanding: {formatCurrency(outstanding)}
                         </div>
-                      )}
+                      ) : null}
                     </div>
 
                     <button
