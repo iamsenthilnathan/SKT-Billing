@@ -26,60 +26,6 @@ const MIME_TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-function checkBasicAuth(req, res) {
-  const expectedUser = process.env.APP_USERNAME;
-  const expectedPass = process.env.APP_PASSWORD;
-
-  // Enforce configuration: fail closed if credentials are not configured
-  if (!expectedUser || !expectedPass) {
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end('Server configuration error: APP_USERNAME and APP_PASSWORD environment variables are required.');
-    return false;
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Basic ')) {
-    res.statusCode = 401;
-    res.setHeader('WWW-Authenticate', 'Basic realm="Sri Krishna Textile Billing"');
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end('Authentication required.');
-    return false;
-  }
-
-  try {
-    const b64 = authHeader.slice(6).trim();
-    const decoded = Buffer.from(b64, 'base64').toString('utf8');
-    const colonIdx = decoded.indexOf(':');
-    if (colonIdx === -1) {
-      res.statusCode = 401;
-      res.setHeader('WWW-Authenticate', 'Basic realm="Sri Krishna Textile Billing"');
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.end('Invalid authorization credentials.');
-      return false;
-    }
-
-    const username = decoded.slice(0, colonIdx);
-    const password = decoded.slice(colonIdx + 1);
-
-    if (username !== expectedUser || password !== expectedPass) {
-      res.statusCode = 401;
-      res.setHeader('WWW-Authenticate', 'Basic realm="Sri Krishna Textile Billing"');
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.end('Invalid credentials.');
-      return false;
-    }
-
-    return true;
-  } catch {
-    res.statusCode = 401;
-    res.setHeader('WWW-Authenticate', 'Basic realm="Sri Krishna Textile Billing"');
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end('Invalid authorization encoding.');
-    return false;
-  }
-}
-
 function serveStatic(req, res, pathname) {
   let safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
   let filePath = path.join(distDir, safePath);
@@ -132,7 +78,8 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Business-Key, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.end();
     return;
@@ -145,7 +92,6 @@ const server = http.createServer((req, res) => {
   const pathname = decodeURIComponent(urlObj.pathname);
 
   // 1. Unauthenticated health check endpoint for deployment orchestrators (Railway / Render)
-  // Supports both GET and HEAD requests without requiring Basic Auth.
   if ((pathname === '/api/health' || pathname === '/health') && (req.method === 'GET' || req.method === 'HEAD')) {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
@@ -157,12 +103,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2. Server-level HTTP Basic Authentication gate for all protected routes
-  if (!checkBasicAuth(req, res)) {
-    return;
-  }
-
-  // 3. API router delegation
+  // 2. API router delegation
   if (pathname === '/api' || pathname.startsWith('/api/')) {
     handleApiRequest(req, res, (err) => {
       if (err) {

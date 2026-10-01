@@ -21,7 +21,16 @@ interface QueuedAction {
 }
 
 const OFFLINE_QUEUE_KEY = 'skt_offline_queue_v1';
-const BUSINESS_KEY = 'SKT-SRIKRISHNA-2026';
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const res = await fetch(url, {
+    credentials: 'same-origin',
+    ...options,
+  });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('skt:auth-error'));
+  }
+  return res;
+}
 
 type SyncListener = (state: Partial<SyncState>, status: SyncStatus) => void;
 
@@ -100,11 +109,7 @@ class SyncService {
     this.isSyncing = true;
 
     try {
-      const res = await fetch('/api/sync/state', {
-        headers: {
-          'X-Business-Key': BUSINESS_KEY,
-        },
-      });
+      const res = await authFetch('/api/sync/state');
 
       if (!res.ok) {
         throw new Error(`Server returned ${res.status}`);
@@ -155,11 +160,10 @@ class SyncService {
 
     try {
       this.setStatus('syncing');
-      const res = await fetch('/api/draft', {
+      const res = await authFetch('/api/draft', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify(draft),
         keepalive: true,
@@ -179,9 +183,8 @@ class SyncService {
   public async deleteDraft(draftId: string): Promise<boolean> {
     storageService.deleteDraft(draftId);
     try {
-      await fetch(`/api/drafts/${draftId}`, {
+      await authFetch(`/api/drafts/${draftId}`, {
         method: 'DELETE',
-        headers: { 'X-Business-Key': BUSINESS_KEY },
       });
       this.notifyListeners({ drafts: storageService.getDrafts() }, 'synced');
       return true;
@@ -197,9 +200,8 @@ class SyncService {
     }
     storageService.clearActiveDraft();
     try {
-      await fetch('/api/draft', {
+      await authFetch('/api/draft', {
         method: 'DELETE',
-        headers: { 'X-Business-Key': BUSINESS_KEY },
       });
       return true;
     } catch {
@@ -217,11 +219,10 @@ class SyncService {
       const url = isEdit ? `/api/parties/${party.id}` : '/api/parties';
       const method = isEdit ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify(party),
       });
@@ -268,11 +269,10 @@ class SyncService {
     storageService.archiveParty(partyId);
     try {
       this.setStatus('syncing');
-      const res = await fetch(`/api/parties/${partyId}`, {
+      const res = await authFetch(`/api/parties/${partyId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify({ isArchived: true }),
       });
@@ -298,11 +298,10 @@ class SyncService {
     storageService.restoreParty(partyId);
     try {
       this.setStatus('syncing');
-      const res = await fetch(`/api/parties/${partyId}`, {
+      const res = await authFetch(`/api/parties/${partyId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify({ isArchived: false }),
       });
@@ -331,11 +330,8 @@ class SyncService {
 
     try {
       this.setStatus('syncing');
-      const res = await fetch(`/api/parties/${partyId}`, {
+      const res = await authFetch(`/api/parties/${partyId}`, {
         method: 'DELETE',
-        headers: {
-          'X-Business-Key': BUSINESS_KEY,
-        },
       });
 
       if (!res.ok) {
@@ -371,11 +367,10 @@ class SyncService {
     draftId?: string;
   }): Promise<Invoice> {
     this.setStatus('syncing');
-    const res = await fetch('/api/invoices/finalize', {
+    const res = await authFetch('/api/invoices/finalize', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Business-Key': BUSINESS_KEY,
       },
       body: JSON.stringify(payload),
     });
@@ -408,11 +403,10 @@ class SyncService {
   public async recordPayment(invoiceId: string, amount: number, date: string, notes?: string): Promise<boolean> {
     try {
       this.setStatus('syncing');
-      const res = await fetch(`/api/invoices/${invoiceId}/payment`, {
+      const res = await authFetch(`/api/invoices/${invoiceId}/payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify({ amount, date, notes }),
       });
@@ -433,11 +427,10 @@ class SyncService {
   public async cancelInvoice(invoiceId: string, reason?: string): Promise<Invoice> {
     this.setStatus('syncing');
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/cancel`, {
+      const res = await authFetch(`/api/invoices/${invoiceId}/cancel`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify({ reason }),
       });
@@ -486,11 +479,10 @@ class SyncService {
     storageService.saveSettings(settings);
     try {
       this.setStatus('syncing');
-      const res = await fetch('/api/settings', {
+      const res = await authFetch('/api/settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify(settings),
       });
@@ -537,35 +529,34 @@ class SyncService {
       for (const item of queue) {
         try {
           if (item.type === 'save_draft') {
-            await fetch('/api/draft', {
+            await authFetch('/api/draft', {
               method: 'PUT',
-              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(item.payload),
             });
           } else if (item.type === 'save_party') {
             const isEdit = Boolean(item.payload.id && !item.payload.id.startsWith('party_temp_'));
             const url = isEdit ? `/api/parties/${item.payload.id}` : '/api/parties';
             const method = isEdit ? 'PUT' : 'POST';
-            await fetch(url, {
+            await authFetch(url, {
               method,
-              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(item.payload),
             });
           } else if (item.type === 'delete_party') {
-            await fetch(`/api/parties/${item.payload.id}`, {
+            await authFetch(`/api/parties/${item.payload.id}`, {
               method: 'DELETE',
-              headers: { 'X-Business-Key': BUSINESS_KEY },
             });
           } else if (item.type === 'save_settings') {
-            await fetch('/api/settings', {
+            await authFetch('/api/settings', {
               method: 'PUT',
-              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(item.payload),
             });
           } else if (item.type === 'record_payment') {
-            await fetch(`/api/invoices/${item.payload.invoiceId}/payment`, {
+            await authFetch(`/api/invoices/${item.payload.invoiceId}/payment`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-Business-Key': BUSINESS_KEY },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(item.payload),
             });
           }
@@ -595,11 +586,10 @@ class SyncService {
       const rateMemory = storageService.getRateMemory();
       const draft = storageService.getActiveDraft();
 
-      await fetch('/api/sync/migrate', {
+      await authFetch('/api/sync/migrate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Business-Key': BUSINESS_KEY,
         },
         body: JSON.stringify({ parties, invoices, rateMemory, draft }),
       });

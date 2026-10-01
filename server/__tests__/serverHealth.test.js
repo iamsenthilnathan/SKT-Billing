@@ -3,10 +3,23 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const testDataDir = path.resolve(__dirname, '..', 'test-health-data');
+if (fs.existsSync(testDataDir)) {
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+}
+fs.mkdirSync(testDataDir, { recursive: true });
+
+process.env.DATA_DIR = testDataDir;
 process.env.APP_USERNAME = 'test_railway_user';
 process.env.APP_PASSWORD = 'test_railway_password';
 
 const { server } = require('../server.cjs');
+const { db } = require('../db.cjs');
 
 describe('Server Health and Authentication Gate', () => {
   let testPort;
@@ -27,14 +40,32 @@ describe('Server Health and Authentication Gate', () => {
     await new Promise((resolve) => {
       server.close(() => resolve());
     });
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+    try {
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true, force: true });
+      }
+    } catch {
+      // ignore
+    }
   });
 
   function makeRequest(options) {
     return new Promise((resolve, reject) => {
+      const payload = options.body;
+      const headers = { ...options.headers };
+      if (payload && !headers['Content-Length']) {
+        headers['Content-Length'] = Buffer.byteLength(payload);
+      }
       const req = http.request({
         hostname: '127.0.0.1',
         port: testPort,
         ...options,
+        headers,
       }, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
@@ -45,13 +76,12 @@ describe('Server Health and Authentication Gate', () => {
         }));
       });
       req.on('error', reject);
+      if (payload) {
+        req.write(payload);
+      }
       req.end();
     });
   }
-
-  const validBasicAuth = 'Basic ' + Buffer.from('test_railway_user:test_railway_password').toString('base64');
-  const invalidBasicAuth = 'Basic ' + Buffer.from('wrong:wrong').toString('base64');
-  const validBusinessKey = 'SKT-SRIKRISHNA-2026';
 
   it('allows unauthenticated GET /api/health with 200 OK for Railway/Render orchestrators', async () => {
     const res = await makeRequest({ path: '/api/health', method: 'GET' });
@@ -69,44 +99,82 @@ describe('Server Health and Authentication Gate', () => {
     expect(json.status).toBe('ok');
   });
 
-  it('rejects unauthenticated requests to normal application routes (/) with 401 and Basic Auth challenge', async () => {
+  it('allows unauthenticated HEAD /api/health with 200 OK without content body', async () => {
+    const res = await makeRequest({ path: '/api/health', method: 'HEAD' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('application/json');
+    expect(res.body).toBe('');
+  });
+
+  it('serves SPA shell (/) without HTTP Basic Auth challenge', async () => {
     const res = await makeRequest({ path: '/', method: 'GET' });
-    expect(res.statusCode).toBe(401);
-    expect(res.headers['www-authenticate']).toContain('Basic realm="Sri Krishna Textile Billing"');
-  });
-
-  it('rejects unauthenticated requests to normal API routes (/api/sync/state) with 401', async () => {
-    const res = await makeRequest({ path: '/api/sync/state', method: 'GET' });
-    expect(res.statusCode).toBe(401);
-    expect(res.headers['www-authenticate']).toBeDefined();
-  });
-
-  it('rejects requests with incorrect Basic Auth credentials with 401', async () => {
-    const res = await makeRequest({
-      path: '/api/sync/state',
-      method: 'GET',
-      headers: { 'Authorization': invalidBasicAuth },
-    });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it('serves normal application routes when valid Basic Auth credentials are provided', async () => {
-    const res = await makeRequest({
-      path: '/',
-      method: 'GET',
-      headers: { 'Authorization': validBasicAuth },
-    });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
+    expect(res.headers['www-authenticate']).toBeUndefined();
   });
 
-  it('handles protected API routes when valid Basic Auth and Business Key are provided', async () => {
+  it('rejects unauthenticated requests to protected API routes (/api/sync/state) with 401 JSON and NO www-authenticate header', async () => {
+    const res = await makeRequest({ path: '/api/sync/state', method: 'GET' });
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['www-authenticate']).toBeUndefined();
+    const json = JSON.parse(res.body);
+    expect(json.authenticated).toBe(false);
+    expect(json.error).toContain('Authentication required');
+  });
+
+  it('authenticates via POST /api/auth/login and sets HttpOnly session cookie', async () => {
+    const res = await makeRequest({
+      path: '/api/auth/login',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'test_railway_user',
+        password: 'test_railway_password',
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    const setCookie = res.headers['set-cookie'];
+    expect(setCookie).toBeDefined();
+    expect(setCookie[0]).toContain('skt_session=');
+    expect(setCookie[0]).toContain('HttpOnly');
+    expect(setCookie[0]).toContain('SameSite=Lax');
+    const json = JSON.parse(res.body);
+    expect(json.success).toBe(true);
+    expect(json.user.username).toBe('test_railway_user');
+  });
+
+  it('rejects POST /api/auth/login with invalid password', async () => {
+    const res = await makeRequest({
+      path: '/api/auth/login',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'test_railway_user',
+        password: 'wrong_password',
+      }),
+    });
+    expect(res.statusCode).toBe(401);
+    const json = JSON.parse(res.body);
+    expect(json.error).toBe('Invalid username or password');
+  });
+
+  it('handles protected API routes when valid session cookie is provided without X-Business-Key', async () => {
+    const loginRes = await makeRequest({
+      path: '/api/auth/login',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'test_railway_user',
+        password: 'test_railway_password',
+      }),
+    });
+    const cookieHeader = loginRes.headers['set-cookie'][0].split(';')[0];
+
     const res = await makeRequest({
       path: '/api/sync/state',
       method: 'GET',
       headers: {
-        'Authorization': validBasicAuth,
-        'X-Business-Key': validBusinessKey,
+        'Cookie': cookieHeader,
       },
     });
     expect(res.statusCode).toBe(200);
@@ -115,24 +183,17 @@ describe('Server Health and Authentication Gate', () => {
     expect(json.invoices).toBeDefined();
   });
 
-  it('enforces Business Key on protected API routes even when Basic Auth is valid', async () => {
+  it('does not accept legacy Basic Auth header on protected API routes', async () => {
+    const legacyBasic = 'Basic ' + Buffer.from('test_railway_user:test_railway_password').toString('base64');
     const res = await makeRequest({
       path: '/api/sync/state',
       method: 'GET',
       headers: {
-        'Authorization': validBasicAuth,
+        'Authorization': legacyBasic,
       },
     });
     expect(res.statusCode).toBe(401);
-    const json = JSON.parse(res.body);
-    expect(json.error).toContain('Unauthorized: Invalid business key');
-  });
-
-  it('allows unauthenticated HEAD /api/health with 200 OK without content body', async () => {
-    const res = await makeRequest({ path: '/api/health', method: 'HEAD' });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toBe('application/json');
-    expect(res.body).toBe('');
+    expect(res.headers['www-authenticate']).toBeUndefined();
   });
 
   it('correctly handles reverse-proxy requests with x-forwarded-proto: https without emitting any redirect', async () => {
@@ -142,27 +203,11 @@ describe('Server Health and Authentication Gate', () => {
       headers: {
         'x-forwarded-proto': 'https',
         'x-forwarded-host': 'skt-billing-production.up.railway.app',
-        'Authorization': validBasicAuth,
       },
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['location']).toBeUndefined();
     expect(res.headers['content-type']).toContain('text/html');
-  });
-
-  it('does not emit an HTTP redirect or loop when x-forwarded-proto is http', async () => {
-    const res = await makeRequest({
-      path: '/',
-      method: 'GET',
-      headers: {
-        'x-forwarded-proto': 'http',
-        'x-forwarded-host': 'skt-billing-production.up.railway.app',
-      },
-    });
-    // Remains protected by Basic Auth challenge; does NOT emit a 301/302 redirect
-    expect(res.statusCode).toBe(401);
-    expect(res.headers['location']).toBeUndefined();
-    expect(res.headers['www-authenticate']).toBeDefined();
   });
 });
 

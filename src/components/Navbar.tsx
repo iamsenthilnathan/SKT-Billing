@@ -8,6 +8,7 @@ import {
   CloudOff,
   RefreshCw,
   Layers,
+  LogOut,
 } from 'lucide-react';
 import type { SyncStatus } from '../services/syncService';
 
@@ -19,6 +20,8 @@ interface NavbarProps {
   autosaveStatus: 'saved' | 'saving' | 'idle';
   lastSavedTime?: string;
   syncStatus?: SyncStatus;
+  currentUser?: string | null;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,6 +30,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   autosaveStatus,
   lastSavedTime,
   syncStatus = 'synced',
+  currentUser,
+  onLogout,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
@@ -154,6 +159,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <SettingsIcon className="w-4 h-4 shrink-0" />
             </button>
+
+            {/* 6. User Info & Logout Action */}
+            {onLogout && (
+              <div className="flex items-center gap-1.5 ml-1 pl-1 border-l border-slate-200">
+                {currentUser && (
+                  <span
+                    className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 max-w-[120px] truncate"
+                    title={`Logged in as ${currentUser}`}
+                  >
+                    {currentUser}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="p-1.5 sm:px-2.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center gap-1.5 border border-slate-200/80"
+                  title={currentUser ? `Sign Out (${currentUser})` : 'Sign Out'}
+                >
+                  <LogOut className="w-4 h-4 shrink-0 text-slate-400" />
+                  <span className="hidden xl:inline text-xs">Sign Out</span>
+                </button>
+              </div>
+            )}
           </nav>
         </div>
       </div>

@@ -10,7 +10,8 @@ import { InvoiceView } from './components/invoice/InvoiceView';
 import { InvoiceList } from './components/invoice/InvoiceList';
 import { PartyManager } from './components/parties/PartyManager';
 import { SettingsManager } from './components/settings/SettingsManager';
-import { Plus } from 'lucide-react';
+import { LoginPage } from './components/auth/LoginPage';
+import { Plus, Building2, Loader2 } from 'lucide-react';
 import type {
   BusinessSettings,
   Party,
@@ -69,6 +70,10 @@ export function App() {
   const pendingInvoiceIdRef = useRef<string | null>(
     typeof window !== 'undefined' ? parseNavigationHash(window.location.hash)?.invoiceId || null : null
   );
+
+  // Authentication State
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated'>('checking');
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
 
   // App Master Data State
   const [settings, setSettings] = useState<BusinessSettings>(() => storageService.getSettings());
@@ -192,8 +197,47 @@ export function App() {
     }
   }, [draftId, selectedPartyId, invoiceDate, dcs, calculations]);
 
-  // Initialize Cloud Sync Service & Subscription
+  // Verify Authentication Session on Mount
   useEffect(() => {
+    let isMounted = true;
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated && data.user) {
+            if (isMounted) {
+              setCurrentUser(data.user.username);
+              setAuthStatus('authenticated');
+            }
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Auth check error:', err);
+      }
+      if (isMounted) {
+        setCurrentUser(null);
+        setAuthStatus('unauthenticated');
+      }
+    }
+    checkAuth();
+
+    const handleAuthError = () => {
+      setCurrentUser(null);
+      setAuthStatus('unauthenticated');
+    };
+    window.addEventListener('skt:auth-error', handleAuthError);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('skt:auth-error', handleAuthError);
+    };
+  }, []);
+
+  // Initialize Cloud Sync Service & Subscription (Only when Authenticated)
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return;
     syncService.startSync(2000);
     const unsubscribe = syncService.subscribe((state, status) => {
       setSyncStatus(status);
@@ -218,7 +262,29 @@ export function App() {
       unsubscribe();
       syncService.stopSync();
     };
-  }, []);
+  }, [authStatus]);
+
+  // Handle User Logout
+  const handleLogout = useCallback(async () => {
+    try {
+      if (hasPendingCloudSyncRef.current) {
+        await flushCloudSync();
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setCurrentUser(null);
+      setAuthStatus('unauthenticated');
+    }
+  }, [flushCloudSync]);
 
   // Immediate Local Persistence & 10-Second Debounced Cloud Sync (Per Draft)
   useEffect(() => {
@@ -802,6 +868,31 @@ export function App() {
     }
   }, []);
 
+  if (authStatus === 'checking') {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-4">
+        <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center mb-4 shadow-xl shadow-indigo-500/30">
+          <Building2 className="w-7 h-7 text-white" />
+        </div>
+        <div className="flex items-center space-x-3 text-slate-300">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+          <span className="text-sm font-medium tracking-wide">Loading Sri Krishna Textile Billing...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatus === 'unauthenticated') {
+    return (
+      <LoginPage
+        onLoginSuccess={(user) => {
+          setCurrentUser(user.username);
+          setAuthStatus('authenticated');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Global Navigation Header */}
@@ -820,6 +911,8 @@ export function App() {
         autosaveStatus={autosaveStatus}
         lastSavedTime={lastSavedTime}
         syncStatus={syncStatus}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       <main className="flex-1 pb-16">

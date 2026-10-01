@@ -1,12 +1,18 @@
 const { db } = require('./db.cjs');
-
-const BUSINESS_KEY = process.env.SKT_BUSINESS_KEY || 'SKT-SRIKRISHNA-2026';
+const {
+  validateCredentials,
+  createSessionToken,
+  getSessionFromRequest,
+  createSetCookieHeader,
+  createClearCookieHeader,
+} = require('./auth.cjs');
 
 function sendJson(res, statusCode, data) {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Business-Key');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.end(JSON.stringify(data));
 }
@@ -35,7 +41,8 @@ async function handleApiRequest(req, res, next) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Business-Key');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     return res.end();
   }
@@ -49,10 +56,40 @@ async function handleApiRequest(req, res, next) {
     return sendJson(res, 200, { status: 'healthy', database: 'sqlite', timestamp: new Date().toISOString() });
   }
 
-  // Business access authentication
-  const clientKey = req.headers['x-business-key'];
-  if (!clientKey || clientKey !== BUSINESS_KEY) {
-    return sendJson(res, 401, { error: 'Unauthorized: Invalid business key' });
+  // ------------------------------------------------------------------------
+  // AUTHENTICATION ENDPOINTS (Public)
+  // ------------------------------------------------------------------------
+  if (pathname === '/auth/login' && req.method === 'POST') {
+    const body = await parseJsonBody(req);
+    const { username, password } = body;
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return sendJson(res, 400, { error: 'Username and password are required' });
+    }
+    if (!validateCredentials(username.trim(), password)) {
+      return sendJson(res, 401, { error: 'Invalid username or password' });
+    }
+    const token = createSessionToken(username.trim());
+    res.setHeader('Set-Cookie', createSetCookieHeader(token, req));
+    return sendJson(res, 200, { success: true, user: { username: username.trim() } });
+  }
+
+  if (pathname === '/auth/logout' && req.method === 'POST') {
+    res.setHeader('Set-Cookie', createClearCookieHeader(req));
+    return sendJson(res, 200, { success: true });
+  }
+
+  if (pathname === '/auth/me' && req.method === 'GET') {
+    const session = getSessionFromRequest(req);
+    if (!session) {
+      return sendJson(res, 401, { authenticated: false, error: 'Not authenticated' });
+    }
+    return sendJson(res, 200, { authenticated: true, user: { username: session.username } });
+  }
+
+  // Session verification gate for all protected API endpoints
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return sendJson(res, 401, { error: 'Authentication required', authenticated: false });
   }
 
   try {
@@ -772,4 +809,4 @@ async function handleApiRequest(req, res, next) {
   }
 }
 
-module.exports = { handleApiRequest, BUSINESS_KEY };
+module.exports = { handleApiRequest };

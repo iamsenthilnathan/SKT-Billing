@@ -22,6 +22,7 @@ const { db } = require('../db.cjs');
 
 describe('Empty Database Startup & Zero-Invoice Invariant', () => {
   let testPort;
+  let sessionCookie;
 
   beforeAll(async () => {
     await new Promise((resolve) => {
@@ -32,6 +33,34 @@ describe('Empty Database Startup & Zero-Invoice Invariant', () => {
         }
         resolve();
       });
+    });
+
+    // Authenticate via /api/auth/login to obtain session cookie
+    const loginPayload = JSON.stringify({
+      username: 'test_empty_user',
+      password: 'test_empty_password',
+    });
+    sessionCookie = await new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: testPort,
+        path: '/api/auth/login',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(loginPayload),
+        },
+      }, (res) => {
+        const rawCookie = res.headers['set-cookie']?.[0];
+        if (rawCookie) {
+          resolve(rawCookie.split(';')[0]);
+        } else {
+          reject(new Error('Failed to obtain session cookie'));
+        }
+      });
+      req.on('error', reject);
+      req.write(loginPayload);
+      req.end();
     });
   });
 
@@ -53,15 +82,11 @@ describe('Empty Database Startup & Zero-Invoice Invariant', () => {
     }
   });
 
-  const validBasicAuth = 'Basic ' + Buffer.from('test_empty_user:test_empty_password').toString('base64');
-  const validBusinessKey = 'SKT-SRIKRISHNA-2026';
-
   function makeRequest({ path, method = 'GET', body, headers = {} }) {
     return new Promise((resolve, reject) => {
       const payload = body ? JSON.stringify(body) : null;
       const reqHeaders = {
-        Authorization: validBasicAuth,
-        'X-Business-Key': validBusinessKey,
+        Cookie: sessionCookie,
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         ...headers,
       };
