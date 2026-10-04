@@ -97,7 +97,7 @@ async function handleApiRequest(req, res, next) {
     // 1. FULL SYNC STATE (GET /sync/state)
     // ------------------------------------------------------------------------
     if (pathname === '/sync/state' && req.method === 'GET') {
-      const rawSettings = db.prepare('SELECT * FROM settings WHERE id = ?').get('default');
+      const rawSettings = await db.get('SELECT * FROM settings WHERE id = ?', ['default']);
       const settings = rawSettings ? {
         id: rawSettings.id,
         businessName: rawSettings.business_name,
@@ -116,7 +116,7 @@ async function handleApiRequest(req, res, next) {
         openingInvoiceSequences: rawSettings.opening_invoice_sequences ? JSON.parse(rawSettings.opening_invoice_sequences) : {},
       } : null;
 
-      const rawParties = db.prepare('SELECT * FROM parties ORDER BY created_at ASC').all();
+      const rawParties = await db.all('SELECT * FROM parties ORDER BY created_at ASC');
       const parties = rawParties.map(p => ({
         id: p.id,
         name: p.name,
@@ -129,7 +129,7 @@ async function handleApiRequest(req, res, next) {
         updatedAt: p.updated_at,
       }));
 
-      const rawRates = db.prepare('SELECT * FROM rate_memory ORDER BY updated_at DESC').all();
+      const rawRates = await db.all('SELECT * FROM rate_memory ORDER BY updated_at DESC');
       const rateMemory = rawRates.map(r => ({
         id: r.id,
         partyId: r.party_id,
@@ -139,7 +139,7 @@ async function handleApiRequest(req, res, next) {
         lastUsedInvoiceNumber: r.last_used_invoice_number,
       }));
 
-      const rawInvoices = db.prepare('SELECT * FROM invoices ORDER BY sequence_number DESC').all();
+      const rawInvoices = await db.all('SELECT * FROM invoices ORDER BY sequence_number DESC');
       const invoices = rawInvoices.map(inv => ({
         id: inv.id,
         invoiceNumber: inv.invoice_number,
@@ -169,7 +169,7 @@ async function handleApiRequest(req, res, next) {
         cancellationReason: inv.cancellation_reason || undefined,
       }));
 
-      const rawDrafts = db.prepare('SELECT * FROM active_draft ORDER BY updated_at DESC').all();
+      const rawDrafts = await db.all('SELECT * FROM active_draft ORDER BY updated_at DESC');
       const drafts = rawDrafts.map(r => ({
         id: r.id,
         partyId: r.party_id,
@@ -197,7 +197,7 @@ async function handleApiRequest(req, res, next) {
     if (pathname === '/draft' || pathname === '/drafts' || pathname.startsWith('/drafts/')) {
       if (req.method === 'GET') {
         if (pathname === '/drafts') {
-          const rawDrafts = db.prepare('SELECT * FROM active_draft ORDER BY updated_at DESC').all();
+          const rawDrafts = await db.all('SELECT * FROM active_draft ORDER BY updated_at DESC');
           return sendJson(res, 200, rawDrafts.map(r => ({
             id: r.id,
             partyId: r.party_id,
@@ -211,9 +211,9 @@ async function handleApiRequest(req, res, next) {
         const draftId = urlObj.searchParams.get('id') || (pathname.startsWith('/drafts/') ? pathname.replace('/drafts/', '') : null);
         let rawDraft;
         if (draftId) {
-          rawDraft = db.prepare('SELECT * FROM active_draft WHERE id = ?').get(draftId);
+          rawDraft = await db.get('SELECT * FROM active_draft WHERE id = ?', [draftId]);
         } else {
-          rawDraft = db.prepare('SELECT * FROM active_draft ORDER BY updated_at DESC LIMIT 1').get();
+          rawDraft = await db.get('SELECT * FROM active_draft ORDER BY updated_at DESC LIMIT 1');
         }
 
         if (!rawDraft) return sendJson(res, 200, null);
@@ -234,7 +234,7 @@ async function handleApiRequest(req, res, next) {
         }
 
         const now = data.updatedAt || new Date().toISOString();
-        const upsertDraft = db.prepare(`
+        await db.run(`
           INSERT INTO active_draft (id, party_id, invoice_date, dcs_json, calculations_json, updated_at)
           VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
@@ -243,16 +243,14 @@ async function handleApiRequest(req, res, next) {
             dcs_json = excluded.dcs_json,
             calculations_json = excluded.calculations_json,
             updated_at = excluded.updated_at
-        `);
-
-        upsertDraft.run(
+        `, [
           data.id,
           data.partyId || null,
           data.invoiceDate || null,
           JSON.stringify(data.dcs || []),
           JSON.stringify(data.calculations || {}),
           now
-        );
+        ]);
 
         return sendJson(res, 200, { success: true, id: data.id, updatedAt: now });
       }
@@ -260,9 +258,9 @@ async function handleApiRequest(req, res, next) {
       if (req.method === 'DELETE') {
         const draftId = urlObj.searchParams.get('id') || (pathname.startsWith('/drafts/') ? pathname.replace('/drafts/', '') : null);
         if (draftId) {
-          db.prepare('DELETE FROM active_draft WHERE id = ?').run(draftId);
+          await db.run('DELETE FROM active_draft WHERE id = ?', [draftId]);
         } else {
-          db.exec('DELETE FROM active_draft');
+          await db.run('DELETE FROM active_draft');
         }
         return sendJson(res, 200, { success: true, deletedId: draftId || 'all' });
       }
@@ -273,7 +271,7 @@ async function handleApiRequest(req, res, next) {
     // ------------------------------------------------------------------------
     if (pathname === '/parties') {
       if (req.method === 'GET') {
-        const rows = db.prepare('SELECT * FROM parties ORDER BY name ASC').all();
+        const rows = await db.all('SELECT * FROM parties ORDER BY name ASC');
         return sendJson(res, 200, rows.map(p => ({
           id: p.id,
           name: p.name,
@@ -297,12 +295,10 @@ async function handleApiRequest(req, res, next) {
         const now = new Date().toISOString();
         const isArchived = p.isArchived ? 1 : 0;
 
-        const insert = db.prepare(`
+        await db.run(`
           INSERT INTO parties (id, name, address, gstin, phone, notes, is_archived, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        insert.run(partyId, p.name.trim(), p.address.trim(), p.gstin.trim().toUpperCase(), p.phone.trim(), p.notes || null, isArchived, now, now);
+        `, [partyId, p.name.trim(), p.address.trim(), p.gstin.trim().toUpperCase(), p.phone.trim(), p.notes || null, isArchived, now, now]);
 
         return sendJson(res, 201, {
           id: partyId,
@@ -322,7 +318,7 @@ async function handleApiRequest(req, res, next) {
       const partyId = pathname.replace('/parties/', '');
       if (req.method === 'PUT') {
         const p = await parseJsonBody(req);
-        const existing = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
+        const existing = await db.get('SELECT * FROM parties WHERE id = ?', [partyId]);
         if (!existing) {
           return sendJson(res, 404, { error: 'Party not found' });
         }
@@ -335,12 +331,11 @@ async function handleApiRequest(req, res, next) {
         const isArchived = p.isArchived !== undefined ? (p.isArchived ? 1 : 0) : existing.is_archived;
         const now = new Date().toISOString();
 
-        const update = db.prepare(`
+        await db.run(`
           UPDATE parties SET
             name = ?, address = ?, gstin = ?, phone = ?, notes = ?, is_archived = ?, updated_at = ?
           WHERE id = ?
-        `);
-        update.run(name, address, gstin, phone, notes, isArchived, now, partyId);
+        `, [name, address, gstin, phone, notes, isArchived, now, partyId]);
         return sendJson(res, 200, {
           success: true,
           id: partyId,
@@ -355,7 +350,7 @@ async function handleApiRequest(req, res, next) {
       }
 
       if (req.method === 'DELETE') {
-        const refInvoice = db.prepare('SELECT id, invoice_number FROM invoices WHERE party_id = ? LIMIT 1').get(partyId);
+        const refInvoice = await db.get('SELECT id, invoice_number FROM invoices WHERE party_id = ? LIMIT 1', [partyId]);
         if (refInvoice) {
           return sendJson(res, 400, {
             error: `Cannot delete customer: Referenced by invoice ${refInvoice.invoice_number || refInvoice.id}. Archive this customer instead.`,
@@ -363,8 +358,8 @@ async function handleApiRequest(req, res, next) {
             invoiceNumber: refInvoice.invoice_number,
           });
         }
-        db.prepare('DELETE FROM parties WHERE id = ?').run(partyId);
-        db.prepare('DELETE FROM rate_memory WHERE party_id = ?').run(partyId);
+        await db.run('DELETE FROM parties WHERE id = ?', [partyId]);
+        await db.run('DELETE FROM rate_memory WHERE party_id = ?', [partyId]);
         return sendJson(res, 200, { success: true, deletedId: partyId });
       }
     }
@@ -381,145 +376,139 @@ async function handleApiRequest(req, res, next) {
       }
 
       // Execute within an IMMEDIATE transaction for concurrency lock
-      db.exec('BEGIN IMMEDIATE;');
       try {
-        // 1. Get next atomic sequence number for this financial year
-        const rawSettings = db.prepare('SELECT * FROM settings WHERE id = ?').get('default');
-        const openingSequences = (rawSettings && rawSettings.opening_invoice_sequences)
-          ? JSON.parse(rawSettings.opening_invoice_sequences)
-          : {};
-        const configuredOpening = openingSequences[financialYear] ? Number(openingSequences[financialYear]) : 1;
+        const finalizedInvoice = await db.transaction('immediate', async (tx) => {
+          // 1. Get next atomic sequence number for this financial year
+          const rawSettings = await tx.get('SELECT * FROM settings WHERE id = ?', ['default']);
+          const openingSequences = (rawSettings && rawSettings.opening_invoice_sequences)
+            ? JSON.parse(rawSettings.opening_invoice_sequences)
+            : {};
+          const configuredOpening = openingSequences[financialYear] ? Number(openingSequences[financialYear]) : 1;
 
-        const maxRow = db.prepare('SELECT MAX(sequence_number) as max_seq FROM invoices WHERE financial_year = ?').get(financialYear);
-        const maxFinalized = (maxRow && maxRow.max_seq) ? maxRow.max_seq : 0;
+          const maxRow = await tx.get('SELECT MAX(sequence_number) as max_seq FROM invoices WHERE financial_year = ?', [financialYear]);
+          const maxFinalized = (maxRow && maxRow.max_seq) ? maxRow.max_seq : 0;
 
-        const seqRow = db.prepare('SELECT next_sequence FROM invoice_sequences WHERE financial_year = ?').get(financialYear);
-        const currentNextSeq = seqRow ? seqRow.next_sequence : 1;
+          const seqRow = await tx.get('SELECT next_sequence FROM invoice_sequences WHERE financial_year = ?', [financialYear]);
+          const currentNextSeq = seqRow ? seqRow.next_sequence : 1;
 
-        // Sequence must respect configured opening sequence and max finalized sequence
-        const sequenceNumber = Math.max(configuredOpening, maxFinalized + 1, currentNextSeq);
+          // Sequence must respect configured opening sequence and max finalized sequence
+          const sequenceNumber = Math.max(configuredOpening, maxFinalized + 1, currentNextSeq);
 
-        // Update sequence for next bill
-        db.prepare(`
-          INSERT INTO invoice_sequences (financial_year, next_sequence)
-          VALUES (?, ?)
-          ON CONFLICT(financial_year) DO UPDATE SET next_sequence = ?
-        `).run(financialYear, sequenceNumber + 1, sequenceNumber + 1);
+          // Update sequence for next bill
+          await tx.run(`
+            INSERT INTO invoice_sequences (financial_year, next_sequence)
+            VALUES (?, ?)
+            ON CONFLICT(financial_year) DO UPDATE SET next_sequence = ?
+          `, [financialYear, sequenceNumber + 1, sequenceNumber + 1]);
 
-        // 2. Fetch current settings snapshot
-        const prefix = rawSettings ? rawSettings.invoice_prefix : 'SKT';
-        const invoiceNumber = `${prefix}/${financialYear}/${String(sequenceNumber).padStart(3, '0')}`;
+          // 2. Fetch current settings snapshot
+          const prefix = rawSettings ? rawSettings.invoice_prefix : 'SKT';
+          const invoiceNumber = `${prefix}/${financialYear}/${String(sequenceNumber).padStart(3, '0')}`;
 
-        // 3. Fetch party snapshot
-        const party = db.prepare('SELECT * FROM parties WHERE id = ? OR name = ?').get(partyId, partyId);
-        if (!party) {
-          throw new Error(`Party with id or name "${partyId}" not found`);
-        }
+          // 3. Fetch party snapshot
+          const party = await tx.get('SELECT * FROM parties WHERE id = ? OR name = ?', [partyId, partyId]);
+          if (!party) {
+            throw new Error(`Party with id or name "${partyId}" not found`);
+          }
 
-        const now = new Date().toISOString();
-        const invoiceId = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        const finalTotalAmount = Number(calculations?.totalAmount ?? calculations?.grandTotal ?? 0);
+          const now = new Date().toISOString();
+          const invoiceId = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          const finalTotalAmount = Number(calculations?.totalAmount ?? calculations?.grandTotal ?? 0);
 
-        // 4. Insert finalized invoice with immutable bank & party snapshots
-        const insertInvoice = db.prepare(`
-          INSERT INTO invoices (
-            id, invoice_number, financial_year, sequence_number, invoice_date, status,
-            party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
-            bank_name_snapshot, branch_snapshot, account_number_snapshot, ifsc_code_snapshot,
-            dcs_json, calculations_json, payment_status, paid_amount, outstanding_amount, payments_json,
-            created_at, updated_at, finalized_at
-          ) VALUES (
-            ?, ?, ?, ?, ?, 'finalized',
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, 'unpaid', 0, ?, '[]',
-            ?, ?, ?
-          )
-        `);
+          // 4. Insert finalized invoice with immutable bank & party snapshots
+          await tx.run(`
+            INSERT INTO invoices (
+              id, invoice_number, financial_year, sequence_number, invoice_date, status,
+              party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
+              bank_name_snapshot, branch_snapshot, account_number_snapshot, ifsc_code_snapshot,
+              dcs_json, calculations_json, payment_status, paid_amount, outstanding_amount, payments_json,
+              created_at, updated_at, finalized_at
+            ) VALUES (
+              ?, ?, ?, ?, ?, 'finalized',
+              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?,
+              ?, ?, 'unpaid', 0, ?, '[]',
+              ?, ?, ?
+            )
+          `, [
+            invoiceId,
+            invoiceNumber,
+            financialYear,
+            sequenceNumber,
+            invoiceDate || now.split('T')[0],
+            party.id,
+            party.name,
+            party.address,
+            party.gstin,
+            party.phone,
+            rawSettings ? rawSettings.bank_name : '',
+            rawSettings ? rawSettings.branch : '',
+            rawSettings ? rawSettings.account_number : '',
+            rawSettings ? rawSettings.ifsc_code : '',
+            JSON.stringify(dcs || []),
+            JSON.stringify(calculations || {}),
+            finalTotalAmount,
+            now,
+            now,
+            now
+          ]);
 
-        insertInvoice.run(
-          invoiceId,
-          invoiceNumber,
-          financialYear,
-          sequenceNumber,
-          invoiceDate || now.split('T')[0],
-          party.id,
-          party.name,
-          party.address,
-          party.gstin,
-          party.phone,
-          rawSettings ? rawSettings.bank_name : '',
-          rawSettings ? rawSettings.branch : '',
-          rawSettings ? rawSettings.account_number : '',
-          rawSettings ? rawSettings.ifsc_code : '',
-          JSON.stringify(dcs || []),
-          JSON.stringify(calculations || {}),
-          finalTotalAmount,
-          now,
-          now,
-          now
-        );
-
-        // 5. Record rate memory
-        const upsertRate = db.prepare(`
-          INSERT INTO rate_memory (id, party_id, normalized_description, suggested_rate, last_used_date, last_used_invoice_number, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(party_id, normalized_description) DO UPDATE SET
-            suggested_rate = excluded.suggested_rate,
-            last_used_date = excluded.last_used_date,
-            last_used_invoice_number = excluded.last_used_invoice_number,
-            updated_at = excluded.updated_at
-        `);
-
-        dcs.forEach(dc => {
-          (dc.workEntries || []).forEach(entry => {
-            if (entry.description && entry.description.trim() && entry.rate > 0) {
-              const norm = entry.description.trim().toLowerCase();
-              const rmId = `rm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-              upsertRate.run(rmId, party.id, norm, entry.rate, invoiceDate || now.split('T')[0], invoiceNumber, now);
+          // 5. Record rate memory
+          for (const dc of dcs) {
+            for (const entry of (dc.workEntries || [])) {
+              if (entry.description && entry.description.trim() && entry.rate > 0) {
+                const norm = entry.description.trim().toLowerCase();
+                const rmId = `rm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                await tx.run(`
+                  INSERT INTO rate_memory (id, party_id, normalized_description, suggested_rate, last_used_date, last_used_invoice_number, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)
+                  ON CONFLICT(party_id, normalized_description) DO UPDATE SET
+                    suggested_rate = excluded.suggested_rate,
+                    last_used_date = excluded.last_used_date,
+                    last_used_invoice_number = excluded.last_used_invoice_number,
+                    updated_at = excluded.updated_at
+                `, [rmId, party.id, norm, entry.rate, invoiceDate || now.split('T')[0], invoiceNumber, now]);
+              }
             }
-          });
+          }
+
+          // 6. Clear finalized draft (or all if draftId not specified)
+          if (draftId) {
+            await tx.run('DELETE FROM active_draft WHERE id = ?', [draftId]);
+          } else {
+            await tx.run('DELETE FROM active_draft');
+          }
+
+          return {
+            id: invoiceId,
+            invoiceNumber,
+            financialYear,
+            sequenceNumber,
+            invoiceDate,
+            status: 'finalized',
+            partyId: party.id,
+            partyNameSnapshot: party.name,
+            partyAddressSnapshot: party.address,
+            partyGstinSnapshot: party.gstin,
+            partyPhoneSnapshot: party.phone,
+            bankNameSnapshot: rawSettings ? rawSettings.bank_name : '',
+            branchSnapshot: rawSettings ? rawSettings.branch : '',
+            accountNumberSnapshot: rawSettings ? rawSettings.account_number : '',
+            ifscCodeSnapshot: rawSettings ? rawSettings.ifsc_code : '',
+            dcs,
+            calculations,
+            paymentStatus: 'unpaid',
+            paidAmount: 0,
+            outstandingAmount: finalTotalAmount,
+            payments: [],
+            createdAt: now,
+            updatedAt: now,
+            finalizedAt: now,
+          };
         });
-
-        // 6. Clear finalized draft (or all if draftId not specified)
-        if (draftId) {
-          db.prepare('DELETE FROM active_draft WHERE id = ?').run(draftId);
-        } else {
-          db.exec('DELETE FROM active_draft;');
-        }
-
-        db.exec('COMMIT;');
-
-        const finalizedInvoice = {
-          id: invoiceId,
-          invoiceNumber,
-          financialYear,
-          sequenceNumber,
-          invoiceDate,
-          status: 'finalized',
-          partyId: party.id,
-          partyNameSnapshot: party.name,
-          partyAddressSnapshot: party.address,
-          partyGstinSnapshot: party.gstin,
-          partyPhoneSnapshot: party.phone,
-          bankNameSnapshot: rawSettings ? rawSettings.bank_name : '',
-          branchSnapshot: rawSettings ? rawSettings.branch : '',
-          accountNumberSnapshot: rawSettings ? rawSettings.account_number : '',
-          ifscCodeSnapshot: rawSettings ? rawSettings.ifsc_code : '',
-          dcs,
-          calculations,
-          paymentStatus: 'unpaid',
-          paidAmount: 0,
-          outstandingAmount: finalTotalAmount,
-          payments: [],
-          createdAt: now,
-          updatedAt: now,
-          finalizedAt: now,
-        };
 
         return sendJson(res, 201, finalizedInvoice);
       } catch (err) {
-        db.exec('ROLLBACK;');
         console.error('Finalization transaction error:', err);
         return sendJson(res, 500, { error: err.message });
       }
@@ -537,50 +526,54 @@ async function handleApiRequest(req, res, next) {
         return sendJson(res, 400, { error: 'Valid payment amount is required' });
       }
 
-      db.exec('BEGIN IMMEDIATE;');
       try {
-        const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
-        if (!inv) {
-          db.exec('ROLLBACK;');
-          return sendJson(res, 404, { error: 'Invoice not found' });
-        }
+        const result = await db.transaction('immediate', async (tx) => {
+          const inv = await tx.get('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
+          if (!inv) {
+            const err = new Error('Invoice not found');
+            err.statusCode = 404;
+            throw err;
+          }
 
-        if (inv.status === 'cancelled') {
-          db.exec('ROLLBACK;');
-          return sendJson(res, 400, { error: 'Cannot record payment on a cancelled invoice' });
-        }
+          if (inv.status === 'cancelled') {
+            const err = new Error('Cannot record payment on a cancelled invoice');
+            err.statusCode = 400;
+            throw err;
+          }
 
-        const currentPaid = inv.paid_amount || 0;
-        const currentOutstanding = inv.outstanding_amount || 0;
-        const newPaid = currentPaid + amount;
-        const newOutstanding = Math.max(0, currentOutstanding - amount);
-        const newStatus = newOutstanding === 0 ? 'paid' : 'partially_paid';
+          const currentPaid = inv.paid_amount || 0;
+          const currentOutstanding = inv.outstanding_amount || 0;
+          const newPaid = currentPaid + amount;
+          const newOutstanding = Math.max(0, currentOutstanding - amount);
+          const newStatus = newOutstanding === 0 ? 'paid' : 'partially_paid';
 
-        const payments = JSON.parse(inv.payments_json || '[]');
-        payments.push({
-          id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          amount,
-          date: date || new Date().toISOString().split('T')[0],
-          notes: notes || '',
-          recordedAt: new Date().toISOString(),
+          const payments = JSON.parse(inv.payments_json || '[]');
+          payments.push({
+            id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            amount,
+            date: date || new Date().toISOString().split('T')[0],
+            notes: notes || '',
+            recordedAt: new Date().toISOString(),
+          });
+
+          const now = new Date().toISOString();
+          await tx.run(`
+            UPDATE invoices SET
+              paid_amount = ?,
+              outstanding_amount = ?,
+              payment_status = ?,
+              payments_json = ?,
+              updated_at = ?
+            WHERE id = ?
+          `, [newPaid, newOutstanding, newStatus, JSON.stringify(payments), now, invoiceId]);
+
+          return { success: true, paidAmount: newPaid, outstandingAmount: newOutstanding, paymentStatus: newStatus };
         });
 
-        const now = new Date().toISOString();
-        db.prepare(`
-          UPDATE invoices SET
-            paid_amount = ?,
-            outstanding_amount = ?,
-            payment_status = ?,
-            payments_json = ?,
-            updated_at = ?
-          WHERE id = ?
-        `).run(newPaid, newOutstanding, newStatus, JSON.stringify(payments), now, invoiceId);
-
-        db.exec('COMMIT;');
-        return sendJson(res, 200, { success: true, paidAmount: newPaid, outstandingAmount: newOutstanding, paymentStatus: newStatus });
+        return sendJson(res, 200, result);
       } catch (err) {
-        db.exec('ROLLBACK;');
-        return sendJson(res, 500, { error: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { error: err.message });
       }
     }
 
@@ -592,48 +585,53 @@ async function handleApiRequest(req, res, next) {
       const invoiceId = parts[2];
       const { reason } = await parseJsonBody(req);
 
-      db.exec('BEGIN IMMEDIATE;');
       try {
-        const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
-        if (!inv) {
-          db.exec('ROLLBACK;');
-          return sendJson(res, 404, { error: 'Invoice not found' });
-        }
+        const result = await db.transaction('immediate', async (tx) => {
+          const inv = await tx.get('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
+          if (!inv) {
+            const err = new Error('Invoice not found');
+            err.statusCode = 404;
+            throw err;
+          }
 
-        if (inv.status === 'cancelled') {
-          db.exec('ROLLBACK;');
-          return sendJson(res, 400, { error: 'Invoice is already cancelled' });
-        }
+          if (inv.status === 'cancelled') {
+            const err = new Error('Invoice is already cancelled');
+            err.statusCode = 400;
+            throw err;
+          }
 
-        if (inv.status !== 'finalized') {
-          db.exec('ROLLBACK;');
-          return sendJson(res, 400, { error: `Cannot cancel invoice with status "${inv.status}". Only finalized invoices can be cancelled.` });
-        }
+          if (inv.status !== 'finalized') {
+            const err = new Error(`Cannot cancel invoice with status "${inv.status}". Only finalized invoices can be cancelled.`);
+            err.statusCode = 400;
+            throw err;
+          }
 
-        const now = new Date().toISOString();
-        const cancellationReason = reason && typeof reason === 'string' && reason.trim() ? reason.trim() : null;
+          const now = new Date().toISOString();
+          const cancellationReason = reason && typeof reason === 'string' && reason.trim() ? reason.trim() : null;
 
-        db.prepare(`
-          UPDATE invoices SET
-            status = 'cancelled',
-            cancelled_at = ?,
-            cancellation_reason = ?,
-            updated_at = ?
-          WHERE id = ?
-        `).run(now, cancellationReason, now, invoiceId);
+          await tx.run(`
+            UPDATE invoices SET
+              status = 'cancelled',
+              cancelled_at = ?,
+              cancellation_reason = ?,
+              updated_at = ?
+            WHERE id = ?
+          `, [now, cancellationReason, now, invoiceId]);
 
-        db.exec('COMMIT;');
-        return sendJson(res, 200, {
-          success: true,
-          id: invoiceId,
-          status: 'cancelled',
-          cancelledAt: now,
-          cancellationReason: cancellationReason || undefined,
-          updatedAt: now,
+          return {
+            success: true,
+            id: invoiceId,
+            status: 'cancelled',
+            cancelledAt: now,
+            cancellationReason: cancellationReason || undefined,
+            updatedAt: now,
+          };
         });
+
+        return sendJson(res, 200, result);
       } catch (err) {
-        db.exec('ROLLBACK;');
-        return sendJson(res, 500, { error: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { error: err.message });
       }
     }
 
@@ -642,7 +640,7 @@ async function handleApiRequest(req, res, next) {
     // ------------------------------------------------------------------------
     if (pathname === '/settings') {
       if (req.method === 'GET') {
-        const rawSettings = db.prepare('SELECT * FROM settings WHERE id = ?').get('default');
+        const rawSettings = await db.get('SELECT * FROM settings WHERE id = ?', ['default']);
         return sendJson(res, 200, rawSettings ? {
           id: rawSettings.id,
           businessName: rawSettings.business_name,
@@ -672,7 +670,7 @@ async function handleApiRequest(req, res, next) {
           for (const [fy, seqVal] of Object.entries(s.openingInvoiceSequences)) {
             const seqNum = Number(seqVal);
             if (seqNum > 0) {
-              const maxRow = db.prepare('SELECT MAX(sequence_number) as max_seq FROM invoices WHERE financial_year = ?').get(fy);
+              const maxRow = await db.get('SELECT MAX(sequence_number) as max_seq FROM invoices WHERE financial_year = ?', [fy]);
               if (maxRow && maxRow.max_seq && seqNum <= maxRow.max_seq) {
                 return sendJson(res, 400, {
                   error: `Cannot set sequence for FY ${fy} to ${seqNum}. Invoices up to sequence ${maxRow.max_seq} are already finalized. Next sequence must be at least ${maxRow.max_seq + 1} to prevent duplicate invoice numbers.`
@@ -682,7 +680,7 @@ async function handleApiRequest(req, res, next) {
           }
         }
 
-        db.prepare(`
+        await db.run(`
           UPDATE settings SET
             business_name = ?, address = ?, gstin = ?, phone = ?, email = ?,
             bank_name = ?, account_number = ?, ifsc_code = ?, branch = ?,
@@ -690,28 +688,28 @@ async function handleApiRequest(req, res, next) {
             financial_year_override = ?, opening_invoice_sequences = ?,
             updated_at = ?
           WHERE id = 'default'
-        `).run(
+        `, [
           s.businessName, s.address, s.gstin, s.phone, s.email,
           s.bankName, s.accountNumber, s.ifscCode, s.branch,
           s.defaultCgstRate, s.defaultSgstRate, s.invoicePrefix,
           s.financialYearOverride || '',
           openingJson,
           now
-        );
+        ]);
 
         // Update invoice_sequences next_sequence if configured
         if (s.openingInvoiceSequences && typeof s.openingInvoiceSequences === 'object') {
           for (const [fy, seqVal] of Object.entries(s.openingInvoiceSequences)) {
             const seqNum = Number(seqVal);
             if (seqNum > 0) {
-              const maxRow = db.prepare('SELECT MAX(sequence_number) as max_seq FROM invoices WHERE financial_year = ?').get(fy);
+              const maxRow = await db.get('SELECT MAX(sequence_number) as max_seq FROM invoices WHERE financial_year = ?', [fy]);
               const maxFinalized = (maxRow && maxRow.max_seq) ? maxRow.max_seq : 0;
               const targetNext = Math.max(seqNum, maxFinalized + 1);
-              db.prepare(`
+              await db.run(`
                 INSERT INTO invoice_sequences (financial_year, next_sequence)
                 VALUES (?, ?)
                 ON CONFLICT(financial_year) DO UPDATE SET next_sequence = ?
-              `).run(fy, targetNext, targetNext);
+              `, [fy, targetNext, targetNext]);
             }
           }
         }
@@ -727,75 +725,71 @@ async function handleApiRequest(req, res, next) {
       const data = await parseJsonBody(req);
       const { parties, invoices, rateMemory, draft } = data;
 
-      let migratedCount = 0;
-      db.exec('BEGIN IMMEDIATE;');
       try {
-        if (Array.isArray(parties)) {
-          const insertP = db.prepare(`
-            INSERT OR IGNORE INTO parties (id, name, address, gstin, phone, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `);
-          parties.forEach(p => {
-            insertP.run(p.id, p.name, p.address, p.gstin, p.phone, p.notes || null, p.createdAt || new Date().toISOString(), p.updatedAt || new Date().toISOString());
-          });
-        }
-
-        if (Array.isArray(invoices)) {
-          const insertInv = db.prepare(`
-            INSERT OR IGNORE INTO invoices (
-              id, invoice_number, financial_year, sequence_number, invoice_date, status,
-              party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
-              bank_name_snapshot, branch_snapshot, account_number_snapshot, ifsc_code_snapshot,
-              dcs_json, calculations_json, payment_status, paid_amount, outstanding_amount, payments_json,
-              created_at, updated_at, finalized_at, cancelled_at, cancellation_reason
-            ) VALUES (
-              ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?,
-              ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?
-            )
-          `);
-
-          invoices.forEach(inv => {
-            const res = insertInv.run(
-              inv.id, inv.invoiceNumber, inv.financialYear, inv.sequenceNumber, inv.invoiceDate, inv.status,
-              inv.partyId, inv.partyNameSnapshot, inv.partyAddressSnapshot, inv.partyGstinSnapshot, inv.partyPhoneSnapshot,
-              inv.bankNameSnapshot, inv.branchSnapshot, inv.accountNumberSnapshot, inv.ifscCodeSnapshot,
-              JSON.stringify(inv.dcs), JSON.stringify(inv.calculations), inv.paymentStatus || 'unpaid',
-              inv.paidAmount || 0, inv.outstandingAmount || inv.calculations.totalAmount, JSON.stringify(inv.payments || []),
-              inv.createdAt || new Date().toISOString(), inv.updatedAt || new Date().toISOString(), inv.finalizedAt || new Date().toISOString(),
-              inv.cancelledAt || null, inv.cancellationReason || null
-            );
-            if (res.changes > 0) migratedCount++;
-          });
-        }
-
-        if (Array.isArray(rateMemory)) {
-          const insertRm = db.prepare(`
-            INSERT OR IGNORE INTO rate_memory (id, party_id, normalized_description, suggested_rate, last_used_date, last_used_invoice_number, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-          `);
-          rateMemory.forEach(rm => {
-            insertRm.run(rm.id, rm.partyId, rm.normalizedDescription, rm.suggestedRate, rm.lastUsedDate || '2026-03-25', rm.lastUsedInvoiceNumber || null);
-          });
-        }
-
-        if (draft && draft.id && draft.dcs && draft.dcs.length > 0) {
-          const existingDraft = db.prepare('SELECT COUNT(*) as count FROM active_draft').get();
-          if (existingDraft.count === 0) {
-            const upsertDraft = db.prepare(`
-              INSERT OR IGNORE INTO active_draft (id, party_id, invoice_date, dcs_json, calculations_json, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `);
-            upsertDraft.run(draft.id, draft.partyId || null, draft.invoiceDate || null, JSON.stringify(draft.dcs), JSON.stringify(draft.calculations || {}), draft.updatedAt || new Date().toISOString());
+        const migratedCount = await db.transaction('immediate', async (tx) => {
+          let count = 0;
+          if (Array.isArray(parties)) {
+            for (const p of parties) {
+              await tx.run(`
+                INSERT OR IGNORE INTO parties (id, name, address, gstin, phone, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `, [p.id, p.name, p.address, p.gstin, p.phone, p.notes || null, p.createdAt || new Date().toISOString(), p.updatedAt || new Date().toISOString()]);
+            }
           }
-        }
 
-        db.exec('COMMIT;');
+          if (Array.isArray(invoices)) {
+            for (const inv of invoices) {
+              const res = await tx.run(`
+                INSERT OR IGNORE INTO invoices (
+                  id, invoice_number, financial_year, sequence_number, invoice_date, status,
+                  party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
+                  bank_name_snapshot, branch_snapshot, account_number_snapshot, ifsc_code_snapshot,
+                  dcs_json, calculations_json, payment_status, paid_amount, outstanding_amount, payments_json,
+                  created_at, updated_at, finalized_at, cancelled_at, cancellation_reason
+                ) VALUES (
+                  ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?
+                )
+              `, [
+                inv.id, inv.invoiceNumber, inv.financialYear, inv.sequenceNumber, inv.invoiceDate, inv.status,
+                inv.partyId, inv.partyNameSnapshot, inv.partyAddressSnapshot, inv.partyGstinSnapshot, inv.partyPhoneSnapshot,
+                inv.bankNameSnapshot, inv.branchSnapshot, inv.accountNumberSnapshot, inv.ifscCodeSnapshot,
+                JSON.stringify(inv.dcs), JSON.stringify(inv.calculations), inv.paymentStatus || 'unpaid',
+                inv.paidAmount || 0, inv.outstandingAmount || inv.calculations.totalAmount, JSON.stringify(inv.payments || []),
+                inv.createdAt || new Date().toISOString(), inv.updatedAt || new Date().toISOString(), inv.finalizedAt || new Date().toISOString(),
+                inv.cancelledAt || null, inv.cancellationReason || null
+              ]);
+              if (res.changes > 0) count++;
+            }
+          }
+
+          if (Array.isArray(rateMemory)) {
+            for (const rm of rateMemory) {
+              await tx.run(`
+                INSERT OR IGNORE INTO rate_memory (id, party_id, normalized_description, suggested_rate, last_used_date, last_used_invoice_number, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+              `, [rm.id, rm.partyId, rm.normalizedDescription, rm.suggestedRate, rm.lastUsedDate || '2026-03-25', rm.lastUsedInvoiceNumber || null]);
+            }
+          }
+
+          if (draft && draft.id && draft.dcs && draft.dcs.length > 0) {
+            const existingDraft = await tx.get('SELECT COUNT(*) as count FROM active_draft');
+            if (existingDraft && existingDraft.count === 0) {
+              await tx.run(`
+                INSERT OR IGNORE INTO active_draft (id, party_id, invoice_date, dcs_json, calculations_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+              `, [draft.id, draft.partyId || null, draft.invoiceDate || null, JSON.stringify(draft.dcs), JSON.stringify(draft.calculations || {}), draft.updatedAt || new Date().toISOString()]);
+            }
+          }
+
+          return count;
+        });
+
         return sendJson(res, 200, { success: true, migratedInvoices: migratedCount });
       } catch (err) {
-        db.exec('ROLLBACK;');
         return sendJson(res, 500, { error: err.message });
       }
     }

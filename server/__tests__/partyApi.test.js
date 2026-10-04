@@ -18,13 +18,14 @@ process.env.APP_PASSWORD = 'test_party_password';
 
 const require = createRequire(import.meta.url);
 const { server } = require('../server.cjs');
-const { db } = require('../db.cjs');
+const { db, initPromise } = require('../db.cjs');
 
 describe('Party Backend API & Deletion Safety', () => {
   let testPort;
   let sessionCookie;
 
   beforeAll(async () => {
+    await initPromise;
     await new Promise((resolve) => {
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
@@ -68,10 +69,14 @@ describe('Party Backend API & Deletion Safety', () => {
     await new Promise((resolve) => {
       server.close(() => resolve());
     });
-    db.close();
-    if (fs.existsSync(testDataDir)) {
-      fs.rmSync(testDataDir, { recursive: true, force: true });
-    }
+    try {
+      db.close();
+    } catch {}
+    try {
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true, force: true });
+      }
+    } catch {}
   });
 
   function makeRequest({ path, method = 'GET', body, headers = {} }) {
@@ -148,7 +153,7 @@ describe('Party Backend API & Deletion Safety', () => {
   it('DELETE /api/parties/:id blocks deletion if party is referenced by an invoice', async () => {
     // Insert a test invoice referencing party_1
     const now = new Date().toISOString();
-    db.prepare(`
+    await db.run(`
       INSERT INTO invoices (
         id, invoice_number, financial_year, sequence_number, invoice_date, status,
         party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
@@ -161,7 +166,7 @@ describe('Party Backend API & Deletion Safety', () => {
         'SBI', 'Main', '1234', 'SBIN0001', '[]', '{}', 'unpaid', 0, 1000, '[]',
         ?, ?, ?
       )
-    `).run(now, now, now);
+    `, [now, now, now]);
 
     // Attempting DELETE on party_1 must fail with 400
     const delRes = await makeRequest({
@@ -173,7 +178,7 @@ describe('Party Backend API & Deletion Safety', () => {
     expect(delRes.body.error).toContain('Cannot delete customer: Referenced by invoice');
 
     // Confirm party_1 still exists in DB
-    const checkParty = db.prepare('SELECT * FROM parties WHERE id = ?').get('party_1');
+    const checkParty = await db.get('SELECT * FROM parties WHERE id = ?', ['party_1']);
     expect(checkParty).toBeDefined();
     expect(checkParty.id).toBe('party_1');
   });
@@ -203,8 +208,8 @@ describe('Party Backend API & Deletion Safety', () => {
     expect(delRes.body.success).toBe(true);
 
     // Confirm removed from DB
-    const check = db.prepare('SELECT * FROM parties WHERE id = ?').get('party_unref_99');
-    expect(check).toBeUndefined();
+    const check = await db.get('SELECT * FROM parties WHERE id = ?', ['party_unref_99']);
+    expect(check).toBeFalsy();
   });
 
   it('GET /api/sync/state includes isArchived status for all parties', async () => {

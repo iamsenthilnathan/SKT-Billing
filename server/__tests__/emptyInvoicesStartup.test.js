@@ -18,13 +18,14 @@ process.env.APP_PASSWORD = 'test_empty_password';
 
 const require = createRequire(import.meta.url);
 const { server } = require('../server.cjs');
-const { db } = require('../db.cjs');
+const { db, initPromise } = require('../db.cjs');
 
 describe('Empty Database Startup & Zero-Invoice Invariant', () => {
   let testPort;
   let sessionCookie;
 
   beforeAll(async () => {
+    await initPromise;
     await new Promise((resolve) => {
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
@@ -120,21 +121,21 @@ describe('Empty Database Startup & Zero-Invoice Invariant', () => {
     });
   }
 
-  it('fresh database startup results in exactly 0 invoices while preserving parties, rate_memory, and settings', () => {
-    const invoiceCount = db.prepare('SELECT COUNT(*) as count FROM invoices').get().count;
-    expect(invoiceCount).toBe(0);
+  it('fresh database startup results in exactly 0 invoices while preserving parties, rate_memory, and settings', async () => {
+    const invoiceRow = await db.get('SELECT COUNT(*) as count FROM invoices');
+    expect(invoiceRow.count).toBe(0);
 
-    const draftCount = db.prepare('SELECT COUNT(*) as count FROM active_draft').get().count;
-    expect(draftCount).toBe(0);
+    const draftRow = await db.get('SELECT COUNT(*) as count FROM active_draft');
+    expect(draftRow.count).toBe(0);
 
-    const partyCount = db.prepare('SELECT COUNT(*) as count FROM parties').get().count;
-    expect(partyCount).toBe(3);
+    const partyRow = await db.get('SELECT COUNT(*) as count FROM parties');
+    expect(partyRow.count).toBe(3);
 
-    const rateCount = db.prepare('SELECT COUNT(*) as count FROM rate_memory').get().count;
-    expect(rateCount).toBe(1);
+    const rateRow = await db.get('SELECT COUNT(*) as count FROM rate_memory');
+    expect(rateRow.count).toBe(1);
 
-    const settingsCount = db.prepare('SELECT COUNT(*) as count FROM settings').get().count;
-    expect(settingsCount).toBe(1);
+    const settingsRow = await db.get('SELECT COUNT(*) as count FROM settings');
+    expect(settingsRow.count).toBe(1);
   });
 
   it('GET /api/sync/state returns empty invoices array on fresh database', async () => {
@@ -144,14 +145,15 @@ describe('Empty Database Startup & Zero-Invoice Invariant', () => {
     expect(res.body.invoices.length).toBe(0);
   });
 
-  it('database re-initialization/restart leaves invoices count at 0', () => {
+  it('database re-initialization/restart leaves invoices count at 0', async () => {
     // Re-execute db.cjs module logic to simulate process restart against existing database
     const dbPath = require.resolve('../db.cjs');
     delete require.cache[dbPath];
     const reloaded = require('../db.cjs');
+    await reloaded.initPromise;
 
-    const countAfterRestart = reloaded.db.prepare('SELECT COUNT(*) as count FROM invoices').get().count;
-    expect(countAfterRestart).toBe(0);
+    const countRow = await reloaded.db.get('SELECT COUNT(*) as count FROM invoices');
+    expect(countRow.count).toBe(0);
     try {
       reloaded.db.close();
     } catch {}
@@ -159,20 +161,21 @@ describe('Empty Database Startup & Zero-Invoice Invariant', () => {
 
   it('when 0 invoices exist and opening sequence is 56 for FY 2026-27, finalization allocates sequence 56 (SKT/2026-27/056)', async () => {
     // Configure opening sequence 56 for FY 2026-27
-    db.prepare(`
+    await db.run(`
       UPDATE settings
       SET opening_invoice_sequences = ?
       WHERE id = 'default'
-    `).run(JSON.stringify({ '2026-27': 56 }));
+    `, [JSON.stringify({ '2026-27': 56 })]);
 
-    db.prepare(`
+    await db.run(`
       INSERT INTO invoice_sequences (financial_year, next_sequence)
       VALUES ('2026-27', 56)
       ON CONFLICT(financial_year) DO UPDATE SET next_sequence = 56
-    `).run();
+    `);
 
     // Verify invoices table is still empty before finalization
-    expect(db.prepare('SELECT COUNT(*) as count FROM invoices').get().count).toBe(0);
+    const invRowBefore = await db.get('SELECT COUNT(*) as count FROM invoices');
+    expect(invRowBefore.count).toBe(0);
 
     // Finalize first invoice
     const finalizeRes = await makeRequest({
@@ -215,10 +218,11 @@ describe('Empty Database Startup & Zero-Invoice Invariant', () => {
     expect(finalizeRes.body.invoiceNumber).toBe('SKT/2026-27/056');
 
     // Invoices count is now 1
-    expect(db.prepare('SELECT COUNT(*) as count FROM invoices').get().count).toBe(1);
+    const invRowAfter = await db.get('SELECT COUNT(*) as count FROM invoices');
+    expect(invRowAfter.count).toBe(1);
 
     // Next sequence in DB is now 57
-    const seqRow = db.prepare('SELECT next_sequence FROM invoice_sequences WHERE financial_year = ?').get('2026-27');
+    const seqRow = await db.get('SELECT next_sequence FROM invoice_sequences WHERE financial_year = ?', ['2026-27']);
     expect(seqRow.next_sequence).toBe(57);
   });
 });

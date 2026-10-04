@@ -18,15 +18,17 @@ process.env.APP_PASSWORD = 'test_cancel_password';
 
 const require = createRequire(import.meta.url);
 const { server } = require('../server.cjs');
-const { db } = require('../db.cjs');
+const { db, initPromise } = require('../db.cjs');
 
 describe('Invoice Cancellation Backend API & Safeguards', () => {
   let testPort;
   let sessionCookie;
 
   beforeAll(async () => {
+    await initPromise;
+
     // Insert test fixture invoice inv_sample_1
-    db.prepare(`
+    await db.run(`
       INSERT INTO invoices (
         id, invoice_number, financial_year, sequence_number, invoice_date, status,
         party_id, party_name_snapshot, party_address_snapshot, party_gstin_snapshot, party_phone_snapshot,
@@ -41,7 +43,7 @@ describe('Invoice Cancellation Backend API & Safeguards', () => {
         'unpaid', 0, 24594, '[]',
         datetime('now'), datetime('now'), datetime('now')
       )
-    `).run();
+    `);
 
     await new Promise((resolve) => {
       server.listen(0, '127.0.0.1', () => {
@@ -86,10 +88,14 @@ describe('Invoice Cancellation Backend API & Safeguards', () => {
     await new Promise((resolve) => {
       server.close(() => resolve());
     });
-    db.close();
-    if (fs.existsSync(testDataDir)) {
-      fs.rmSync(testDataDir, { recursive: true, force: true });
-    }
+    try {
+      db.close();
+    } catch {}
+    try {
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true, force: true });
+      }
+    } catch {}
   });
 
   function makeRequest({ path, method = 'GET', body, headers = {} }) {
@@ -165,7 +171,7 @@ describe('Invoice Cancellation Backend API & Safeguards', () => {
     expect(res.body.cancellationReason).toBe('Customer requested change of lot numbers');
 
     // Verify directly in SQLite DB
-    const row = db.prepare('SELECT status, cancelled_at, cancellation_reason FROM invoices WHERE id = ?').get('inv_sample_1');
+    const row = await db.get('SELECT status, cancelled_at, cancellation_reason FROM invoices WHERE id = ?', ['inv_sample_1']);
     expect(row.status).toBe('cancelled');
     expect(row.cancelled_at).toBe(res.body.cancelledAt);
     expect(row.cancellation_reason).toBe('Customer requested change of lot numbers');
@@ -203,11 +209,11 @@ describe('Invoice Cancellation Backend API & Safeguards', () => {
 
   it('Finalizing an invoice NEVER reuses the sequence number of a cancelled invoice', async () => {
     // Set opening sequence to 56 for 2026-27
-    db.prepare(`
+    await db.run(`
       INSERT INTO invoice_sequences (financial_year, next_sequence)
       VALUES ('2026-27', 56)
       ON CONFLICT(financial_year) DO UPDATE SET next_sequence = 56
-    `).run();
+    `);
 
     // Finalize invoice 56
     const finalizeRes1 = await makeRequest({

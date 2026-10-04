@@ -2,6 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { handleApiRequest } = require('./apiHandler.cjs');
+const { initPromise } = require('./db.cjs');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
@@ -127,9 +128,16 @@ const server = http.createServer((req, res) => {
 });
 
 if (require.main === module) {
-  server.listen(PORT, HOST, () => {
-    console.log(`Sri Krishna Textile billing server running on http://${HOST}:${PORT}`);
-  });
+  initPromise
+    .then(() => {
+      server.listen(PORT, HOST, () => {
+        console.log(`Sri Krishna Textile billing server running on http://${HOST}:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Failed to initialize database on startup:', err);
+      process.exit(1);
+    });
 
   const shutdown = () => {
     server.close(() => {
