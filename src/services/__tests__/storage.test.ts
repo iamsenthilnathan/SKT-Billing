@@ -347,5 +347,38 @@ describe('Storage Service & Sequence Engine', () => {
     expect(storageService.getNextInvoiceSequence('2026-27')).toBe(56);
     expect(storageService.getNextInvoiceNumberPreview('2026-27')).toBe('SKT/2026-27/056');
   });
+
+  it('storage initialization on an empty state returns 0 parties and never seeds mock parties', () => {
+    storageService.clearAll();
+    const parties = storageService.getParties();
+    expect(parties).toEqual([]);
+    expect(parties.length).toBe(0);
+
+    // Repeated calls also return empty array and do not write sample data
+    const again = storageService.getParties();
+    expect(again.length).toBe(0);
+  });
+
+  it('correctly persists and retrieves legitimate parties and allows updating to empty list', () => {
+    storageService.clearAll();
+    const realParty = {
+      id: 'party_real_1',
+      name: 'Sri Krishna Real Knits',
+      address: 'Tirupur',
+      gstin: '33ABCDE1234F1Z9',
+      phone: '0421-2262614',
+      isArchived: false,
+      createdAt: '2026-10-04T00:00:00.000Z',
+      updatedAt: '2026-10-04T00:00:00.000Z',
+    };
+
+    storageService.saveParties([realParty]);
+    expect(storageService.getParties()).toHaveLength(1);
+    expect(storageService.getParties()[0].name).toBe('Sri Krishna Real Knits');
+
+    // Updating to empty list persists cleanly
+    storageService.saveParties([]);
+    expect(storageService.getParties()).toEqual([]);
+  });
 });
 

@@ -1,6 +1,6 @@
 import type { DCGroup, InvoiceCalculations, Party } from './types';
 import { numberToIndianWords } from './numberToWords';
-import { validateGstin, validateIndianMobile } from './validation';
+import { validateGstin, validateIndianPhone } from './validation';
 
 /**
  * Standard rounding to 2 decimal places (paise precision)
@@ -136,7 +136,7 @@ export function getFinancialYear(dateInput?: string | Date): string {
 
 /**
  * Validates an invoice before allowing finalization.
- * Requires complete customer information (Name, Address, valid GSTIN, valid Mobile Number)
+ * Requires complete customer information (Name, Address, valid GSTIN, valid Phone Number)
  */
 export function validateInvoiceForFinalization(data: {
   partyId?: string;
@@ -158,9 +158,9 @@ export function validateInvoiceForFinalization(data: {
     if (!gstinCheck.isValid) {
       errors.push(`Customer GSTIN error: ${gstinCheck.error}`);
     }
-    const mobileCheck = validateIndianMobile(data.party.phone);
-    if (!mobileCheck.isValid) {
-      errors.push(`Customer Mobile error: ${mobileCheck.error}`);
+    const phoneCheck = validateIndianPhone(data.party.phone);
+    if (!phoneCheck.isValid) {
+      errors.push(`Customer Phone error: ${phoneCheck.error}`);
     }
   }
 

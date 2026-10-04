@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { storageService } from '../storage';
+import { storageService, INITIAL_PARTIES } from '../storage';
 import type { Invoice } from '../../domain/types';
 
 describe('Party Management & Reference Safety', () => {
   beforeEach(() => {
     storageService.clearAll();
+    storageService.saveParties(INITIAL_PARTIES);
   });
 
   const dummyInvoice: Invoice = {
@@ -162,5 +163,40 @@ describe('Party Management & Reference Safety', () => {
     expect(inv?.partyAddressSnapshot).toBe('45, Cotton Market Ring Road, Tirupur - 641 604, Tamil Nadu');
     expect(inv?.partyGstinSnapshot).toBe('33ABCDE1234F1Z9');
     expect(inv?.partyPhoneSnapshot).toBe('9842111223');
+  });
+
+  it('correctly returns 0 parties when all parties are removed or empty', () => {
+    storageService.saveParties([]);
+    expect(storageService.getParties()).toHaveLength(0);
+    expect(storageService.getActiveParties()).toHaveLength(0);
+  });
+
+  it('applies empty parties array as well as legitimate party lists in sync state updates', () => {
+    let clientParties = storageService.getParties();
+    expect(clientParties.length).toBeGreaterThan(0);
+
+    const applySyncState = (state: { parties?: typeof clientParties }) => {
+      if (state.parties) {
+        clientParties = state.parties;
+      }
+    };
+
+    // 1. Cloud sync returns 0 parties (all deleted in database)
+    applySyncState({ parties: [] });
+    expect(clientParties).toEqual([]);
+
+    // 2. Cloud sync returns legitimate parties
+    const realParty = {
+      id: 'party_real_1',
+      name: 'Kongu Knits',
+      address: 'Tirupur',
+      gstin: '33ABCDE1234F1Z9',
+      phone: '9842111223',
+      createdAt: '2026-10-04T00:00:00.000Z',
+      updatedAt: '2026-10-04T00:00:00.000Z',
+    };
+    applySyncState({ parties: [realParty] });
+    expect(clientParties).toHaveLength(1);
+    expect(clientParties[0].name).toBe('Kongu Knits');
   });
 });

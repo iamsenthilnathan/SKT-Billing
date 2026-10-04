@@ -21,7 +21,7 @@ export interface Party {
   name: string;
   address: string;
   gstin: string; // Mandatory 15-char Indian GSTIN
-  phone: string; // Mandatory 10-digit Indian Mobile Number
+  phone: string; // Mandatory Indian Phone Number (Mobile or Landline with STD code)
   notes?: string;
   isArchived?: boolean;
   createdAt: string;

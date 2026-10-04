@@ -119,7 +119,7 @@ export const PartySelector: React.FC<PartySelectorProps> = ({
             )}
             {selectedParty.phone && (
               <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-slate-500">Mobile:</span>
+                <span className="text-slate-500">Phone:</span>
                 <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800">
                   {selectedParty.phone}
                 </span>

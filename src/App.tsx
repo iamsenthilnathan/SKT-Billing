@@ -34,6 +34,7 @@ import {
   formatNavigationHash,
   resolveInitialNavigation,
   syncBrowserUrl,
+  clearBrowserHash,
 } from './services/navigation';
 
 const createInitialDc = (dateStr: string): DCGroup => ({
@@ -219,6 +220,8 @@ export function App() {
       if (isMounted) {
         setCurrentUser(null);
         setAuthStatus('unauthenticated');
+        clearBrowserHash();
+        storageService.clearNavigationState();
       }
     }
     checkAuth();
@@ -226,6 +229,8 @@ export function App() {
     const handleAuthError = () => {
       setCurrentUser(null);
       setAuthStatus('unauthenticated');
+      clearBrowserHash();
+      storageService.clearNavigationState();
     };
     window.addEventListener('skt:auth-error', handleAuthError);
 
@@ -244,7 +249,7 @@ export function App() {
       if (state.settings) {
         setSettings((prev) => (JSON.stringify(prev) === JSON.stringify(state.settings) ? prev : state.settings!));
       }
-      if (state.parties && state.parties.length > 0) {
+      if (state.parties) {
         setParties((prev) => (JSON.stringify(prev) === JSON.stringify(state.parties) ? prev : state.parties!));
       }
       if (state.rateMemory) {
@@ -281,8 +286,35 @@ export function App() {
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
+      // Clear URL hash to clean root '/'
+      clearBrowserHash();
+      storageService.clearNavigationState();
+
       setCurrentUser(null);
       setAuthStatus('unauthenticated');
+
+      // Clear in-memory authenticated state so the next session cannot inherit stale data
+      setParties([]);
+      setInvoices([]);
+      setDrafts([]);
+      setSelectedPartyId('');
+      setViewingInvoice(null);
+      setRateMemory([]);
+      const today = new Date().toISOString().split('T')[0];
+      setDraftId(`draft_${Date.now()}`);
+      setDcs([createInitialDc(today)]);
+      setInvoiceDate(today);
+      setActiveTab('workspace');
+      setHasAttemptedFinalize(false);
+      setAutosaveStatus('saved');
+      setLastSavedTime('');
+
+      // Clear local storage user data caches
+      storageService.saveParties([]);
+      storageService.saveInvoices([]);
+      storageService.saveDrafts([]);
+      storageService.saveRateMemory([]);
+      storageService.setActiveDraftId('');
     }
   }, [flushCloudSync]);
 
@@ -381,9 +413,10 @@ export function App() {
     }
   }, [invoices, viewingInvoice]);
 
-  // Synchronize state changes to URL hash and localStorage
+  // Synchronize state changes to URL hash and localStorage (Only when Authenticated)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (authStatus !== 'authenticated') return;
 
     const invoiceId = viewingInvoice?.id || null;
     const targetHash = formatNavigationHash({ tab: activeTab, invoiceId });
@@ -397,13 +430,14 @@ export function App() {
       const isInitialOrEmpty = !window.location.hash || window.location.hash === '#' || !currentParsed;
       syncBrowserUrl(targetHash, isInitialOrEmpty);
     }
-  }, [activeTab, viewingInvoice]);
+  }, [authStatus, activeTab, viewingInvoice]);
 
   // Handle browser Back / Forward history transitions
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const handleLocationChange = () => {
+      if (authStatus !== 'authenticated') return;
       const hash = window.location.hash;
       const parsed = parseNavigationHash(hash);
       if (!parsed) {

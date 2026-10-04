@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DCGroup } from '../types';
 import { calculateInvoiceFinancials, validateInvoiceForFinalization } from '../calculations';
-import { validateGstin, validateIndianMobile } from '../validation';
+import { validateGstin, validateIndianPhone, validateIndianMobile } from '../validation';
 
 describe('Invoice Print Requirements & DC Date Inheritance', () => {
   it('validates Indian GSTIN format correctly', () => {
@@ -17,18 +17,33 @@ describe('Invoice Print Requirements & DC Date Inheritance', () => {
     expect(validateGstin(undefined).isValid).toBe(false);
   });
 
-  it('validates Indian Mobile Number format correctly', () => {
-    // Valid 10-digit mobile numbers
-    expect(validateIndianMobile('9842111223').isValid).toBe(true);
-    expect(validateIndianMobile('9876543210').isValid).toBe(true);
-    expect(validateIndianMobile('+91 98421 11223').isValid).toBe(true);
-    expect(validateIndianMobile('09842111223').isValid).toBe(true);
+  it('validates Indian Phone Number (Mobile and Landline) format correctly', () => {
+    // Required Valid Cases
+    expect(validateIndianPhone('9842111223').isValid).toBe(true);
+    expect(validateIndianPhone('04212262614').isValid).toBe(true);
+    expect(validateIndianPhone('0421-2262614').isValid).toBe(true);
+    expect(validateIndianPhone('0421 2262614').isValid).toBe(true);
+    expect(validateIndianPhone('(0421) 2262614').isValid).toBe(true);
+    expect(validateIndianPhone('+91 98421 11223').isValid).toBe(true);
+    expect(validateIndianPhone('+91 0421 2262614').isValid).toBe(true);
+    expect(validateIndianPhone('044-28345678').isValid).toBe(true);
+    expect(validateIndianPhone('080-22345678').isValid).toBe(true);
 
-    // Invalid mobile numbers
-    expect(validateIndianMobile('12345').isValid).toBe(false);
-    expect(validateIndianMobile('5842111223').isValid).toBe(false); // Does not start with 6-9
-    expect(validateIndianMobile('').isValid).toBe(false);
-    expect(validateIndianMobile(undefined).isValid).toBe(false);
+    // Also verify backward compatibility alias
+    expect(validateIndianMobile('04212262614').isValid).toBe(true);
+    expect(validateIndianMobile('9842111223').isValid).toBe(true);
+
+    // Required Invalid Cases
+    expect(validateIndianPhone('').isValid).toBe(false);
+    expect(validateIndianPhone('12345').isValid).toBe(false);
+    expect(validateIndianPhone('04212262614999').isValid).toBe(false);
+    expect(validateIndianPhone('042122ABC14').isValid).toBe(false);
+    expect(validateIndianPhone('0000000000').isValid).toBe(false);
+
+    // Additional edge cases
+    expect(validateIndianPhone('   ').isValid).toBe(false);
+    expect(validateIndianPhone(undefined).isValid).toBe(false);
+    expect(validateIndianPhone(null).isValid).toBe(false);
   });
 
   it('verifies the multi-DC invoice scenario with inherited Party DC dates', () => {

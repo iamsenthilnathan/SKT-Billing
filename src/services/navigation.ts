@@ -175,3 +175,21 @@ export function syncBrowserUrl(targetHash: string, replace = false): void {
     window.location.hash = targetHash;
   }
 }
+
+/**
+ * Clears the URL hash and returns the address bar to the clean root path ('/')
+ * without triggering a page reload.
+ */
+export function clearBrowserHash(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const cleanUrl = window.location.pathname || '/';
+    const search = window.location.search || '';
+    window.history.replaceState(null, '', `${cleanUrl}${search}`);
+    if (window.location.hash) {
+      window.location.hash = '';
+    }
+  } catch {
+    window.location.hash = '';
+  }
+}

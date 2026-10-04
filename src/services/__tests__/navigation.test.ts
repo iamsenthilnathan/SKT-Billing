@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   normalizeTab,
   parseNavigationHash,
   formatNavigationHash,
   resolveInitialNavigation,
+  clearBrowserHash,
   NAV_STORAGE_KEY,
   DEFAULT_NAV_STATE,
 } from '../navigation';
@@ -323,6 +324,96 @@ describe('Navigation State Persistence Engine', () => {
       expect(result.tab).toBe('workspace');
       expect(result.viewingInvoice).toBeNull();
       expect(result.effectiveHash).toBe('#workspace');
+    });
+  });
+
+  describe('Logout URL Hash Clearing (clearBrowserHash)', () => {
+    const originalWindow = globalThis.window;
+
+    function setupMockWindow(initialHash: string) {
+      let _hash = initialHash;
+      let _pathname = '/';
+      let _search = '';
+      const mockWin = {
+        location: {
+          get hash() {
+            return _hash;
+          },
+          set hash(val: string) {
+            _hash = val ? (val.startsWith('#') ? val : '#' + val) : '';
+          },
+          get pathname() {
+            return _pathname;
+          },
+          get search() {
+            return _search;
+          },
+        },
+        history: {
+          replaceState(_state: any, _title: string, url: string) {
+            if (url.includes('#')) {
+              _hash = '#' + url.split('#')[1];
+            } else {
+              _hash = '';
+            }
+          },
+          pushState(_state: any, _title: string, url: string) {
+            if (url.includes('#')) {
+              _hash = '#' + url.split('#')[1];
+            } else {
+              _hash = '';
+            }
+          },
+        },
+      };
+      (globalThis as any).window = mockWin;
+      return mockWin;
+    }
+
+    afterEach(() => {
+      (globalThis as any).window = originalWindow;
+    });
+
+    it('clears URL hash to clean root / when logging out from #workspace', () => {
+      const win = setupMockWindow('#workspace');
+      expect(win.location.hash).toBe('#workspace');
+      clearBrowserHash();
+      expect(win.location.hash).toBe('');
+    });
+
+    it('clears URL hash to clean root / when logging out from #parties', () => {
+      const win = setupMockWindow('#parties');
+      expect(win.location.hash).toBe('#parties');
+      clearBrowserHash();
+      expect(win.location.hash).toBe('');
+    });
+
+    it('clears URL hash to clean root / when logging out from #invoices', () => {
+      const win = setupMockWindow('#invoices');
+      expect(win.location.hash).toBe('#invoices');
+      clearBrowserHash();
+      expect(win.location.hash).toBe('');
+    });
+
+    it('clears URL hash to clean root / when logging out from #drafts', () => {
+      const win = setupMockWindow('#drafts');
+      expect(win.location.hash).toBe('#drafts');
+      clearBrowserHash();
+      expect(win.location.hash).toBe('');
+    });
+
+    it('clears URL hash to clean root / when logging out from #settings', () => {
+      const win = setupMockWindow('#settings');
+      expect(win.location.hash).toBe('#settings');
+      clearBrowserHash();
+      expect(win.location.hash).toBe('');
+    });
+
+    it('clears URL hash to clean root / when logging out from deep invoice view #invoices?id=inv_123', () => {
+      const win = setupMockWindow('#invoices?id=inv_123');
+      expect(win.location.hash).toBe('#invoices?id=inv_123');
+      clearBrowserHash();
+      expect(win.location.hash).toBe('');
     });
   });
 });

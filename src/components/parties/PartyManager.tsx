@@ -16,7 +16,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import type { Party, RateMemoryItem, Invoice } from '../../domain/types';
-import { validateGstin, validateIndianMobile } from '../../domain/validation';
+import { validateGstin, validateIndianPhone } from '../../domain/validation';
 
 interface PartyManagerProps {
   parties: Party[];
@@ -110,10 +110,10 @@ export const PartyManager: React.FC<PartyManagerProps> = ({
       return;
     }
 
-    // 3. Validate Indian Mobile format (10 digits)
-    const mobileCheck = validateIndianMobile(phone);
-    if (!mobileCheck.isValid) {
-      setFormError(mobileCheck.error || 'Invalid Indian Mobile number.');
+    // 3. Validate Indian Phone format (Mobile or Landline)
+    const phoneCheck = validateIndianPhone(phone);
+    if (!phoneCheck.isValid) {
+      setFormError(phoneCheck.error || 'Invalid Indian Phone number.');
       return;
     }
 
@@ -341,7 +341,7 @@ export const PartyManager: React.FC<PartyManagerProps> = ({
 
                   <div className="text-slate-700 flex items-center gap-1.5">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-slate-500">Mobile: </span>
+                    <span className="text-slate-500">Phone: </span>
                     <span className="font-mono font-semibold text-slate-800">{party.phone}</span>
                   </div>
 
@@ -618,18 +618,18 @@ export const PartyManager: React.FC<PartyManagerProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Mobile Number (10 digits): <span className="text-rose-500">*</span>
+                    Phone Number: <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="tel"
-                    maxLength={15}
+                    maxLength={18}
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="9842111223"
+                    placeholder="9842111223 or 0421-2262614"
                     className="w-full text-xs font-medium px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 font-mono text-slate-900"
                     required
                   />
-                  <span className="text-[10px] text-slate-400 block mt-0.5">e.g. 9842111223</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">e.g. 9842111223 (Mobile) or 0421-2262614 (Landline)</span>
                 </div>
               </div>
 

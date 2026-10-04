@@ -271,7 +271,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
 
             {/* Title & Subtitle with Clean Divider */}
-            <div className="space-y-1.5 border-b border-slate-100 pb-5">
+            <div className="space-y-1.5 border-b border-slate-100 pb-3 mb-3">
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
                 Welcome back
               </h2>
@@ -281,7 +281,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
 
             {/* Dedicated Error Slot (Reserved space to ensure 100% stable layout between normal and error states) */}
-            <div className="min-h-[50px] flex items-center">
+            <div className="min-h-[50px] flex items-center mb-3">
               {errorMessage && (
                 <div
                   role="alert"

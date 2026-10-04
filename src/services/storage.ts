@@ -154,10 +154,9 @@ class StorageService {
           isArchived: Boolean(p.isArchived),
         }));
       }
-      this.saveParties(INITIAL_PARTIES);
-      return INITIAL_PARTIES;
+      return [];
     } catch {
-      return INITIAL_PARTIES;
+      return [];
     }
   }
 

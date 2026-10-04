@@ -1,13 +1,10 @@
 /**
- * Strict Indian GSTIN and Mobile Validation utilities
+ * Strict Indian GSTIN and Phone Validation utilities
  */
 
 // Official Indian 15-character GSTIN format:
 // 2 digits (State Code) + 5 letters (PAN) + 4 digits (PAN) + 1 letter (PAN) + 1 entity code + 'Z' + 1 checksum char
 export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-
-// 10-digit Indian Mobile number with optional +91, 91, or 0 prefix
-export const INDIAN_MOBILE_REGEX = /^(?:(?:\+91|91|0)[\s-]?)?[6-9]\d{9}$/;
 
 export function validateGstin(gstin: string | undefined | null): { isValid: boolean; error?: string } {
   if (!gstin || !gstin.trim()) {
@@ -23,13 +20,49 @@ export function validateGstin(gstin: string | undefined | null): { isValid: bool
   return { isValid: true };
 }
 
-export function validateIndianMobile(phone: string | undefined | null): { isValid: boolean; error?: string } {
+/**
+ * Validates an Indian phone number (Mobile or Landline with STD code).
+ * Accepts common formatting: spaces, hyphens, parentheses, and optional +91/91/0 prefix.
+ * Preserves user entered formatting while rejecting obviously malformed or invalid inputs.
+ */
+export function validateIndianPhone(phone: string | undefined | null): { isValid: boolean; error?: string } {
   if (!phone || !phone.trim()) {
-    return { isValid: false, error: 'Mobile number is mandatory.' };
+    return { isValid: false, error: 'Phone number is mandatory.' };
   }
-  const clean = phone.trim().replace(/[\s-]/g, '');
-  if (!INDIAN_MOBILE_REGEX.test(clean)) {
-    return { isValid: false, error: 'Invalid Indian mobile number. Must be a valid 10-digit number starting with 6, 7, 8, or 9.' };
+  const raw = phone.trim();
+  // Reject letters and illegal symbols
+  if (!/^[+]?[\d\s\-().]+$/.test(raw)) {
+    return { isValid: false, error: 'Phone number must only contain digits, spaces, hyphens, and STD code.' };
   }
+  const digits = raw.replace(/\D/g, '');
+  // Reject all zeros
+  if (/^0+$/.test(digits)) {
+    return { isValid: false, error: 'Phone number cannot be all zeros.' };
+  }
+
+  // Handle +91 or 91 country code prefix
+  let core = digits;
+  if (raw.startsWith('+91')) {
+    core = digits.slice(2);
+  } else if (digits.startsWith('91') && (digits.length === 12 || (digits.length === 13 && digits[2] === '0'))) {
+    core = digits.slice(2);
+  }
+
+  if (core.length < 10) {
+    return { isValid: false, error: 'Phone number is too short. Must be a valid 10-digit mobile or landline number with STD code.' };
+  }
+  if (core.length > 11) {
+    return { isValid: false, error: 'Phone number is too long. Please enter a valid Indian mobile (10 digits) or landline with STD code.' };
+  }
+  if (core.length === 10 && core.startsWith('0')) {
+    return { isValid: false, error: 'Landline numbers with STD code starting with 0 must be 11 digits (e.g. 0421-2262614).' };
+  }
+  if (core.length === 11 && !core.startsWith('0')) {
+    return { isValid: false, error: '11-digit phone numbers must start with 0 (e.g. 0421-2262614).' };
+  }
+
   return { isValid: true };
 }
+
+// Backwards-compatibility alias
+export const validateIndianMobile = validateIndianPhone;

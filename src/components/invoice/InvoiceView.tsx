@@ -409,7 +409,7 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
                     )}
                     {invoice.partyPhoneSnapshot && (
                       <div>
-                        <span className="text-slate-500 font-medium">Mobile: </span>
+                        <span className="text-slate-500 font-medium">Phone: </span>
                         <span className="font-mono font-medium text-slate-800">{invoice.partyPhoneSnapshot}</span>
                       </div>
                     )}
