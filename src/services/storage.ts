@@ -46,6 +46,9 @@ class SafeStorage {
 
 const safeStorage = new SafeStorage();
 
+// Ensure obsolete runaway counter from previous versions is completely wiped out
+safeStorage.removeItem('skt_draft_numbers_v1');
+
 export const DEFAULT_SETTINGS: BusinessSettings = {
   id: 'default',
   businessName: 'SRI KRISHNA TEXTILE',
@@ -421,21 +424,27 @@ class StorageService {
   }
 
   getActiveDraftId(): string | null {
-    return safeStorage.getItem(ACTIVE_DRAFT_ID_KEY);
+    const val = safeStorage.getItem(ACTIVE_DRAFT_ID_KEY);
+    return val && val.trim() ? val.trim() : null;
   }
 
   setActiveDraftId(id: string): void {
-    safeStorage.setItem(ACTIVE_DRAFT_ID_KEY, id);
+    if (id && id.trim()) {
+      safeStorage.setItem(ACTIVE_DRAFT_ID_KEY, id.trim());
+    } else {
+      safeStorage.removeItem(ACTIVE_DRAFT_ID_KEY);
+    }
   }
 
   getActiveDraft(): BillDraft | null {
-    const activeId = this.getActiveDraftId();
     const drafts = this.getDrafts();
+    if (drafts.length === 0) return null;
+    const activeId = this.getActiveDraftId();
     if (activeId) {
       const found = drafts.find((d) => d.id === activeId);
       if (found) return found;
     }
-    return drafts.length > 0 ? drafts[0] : null;
+    return drafts[0] || null;
   }
 
   saveActiveDraft(draft: Partial<Invoice> | BillDraft): void {
@@ -459,35 +468,65 @@ class StorageService {
     if (activeId) {
       this.deleteDraft(activeId);
     }
+    this.setActiveDraftId('');
   }
 
   mergeDrafts(serverDrafts: BillDraft[]): BillDraft[] {
     const local = this.getDrafts();
     const map = new Map<string, BillDraft>();
 
-    // Add server drafts
+    // Add server drafts (server is authoritative for persisted drafts)
     for (const sd of serverDrafts) {
       map.set(sd.id, sd);
     }
 
-    // Merge or prioritize newer local drafts
-    for (const ld of local) {
-      const sd = map.get(ld.id);
-      if (!sd) {
-        map.set(ld.id, ld);
-      } else {
-        const sTime = new Date(sd.updatedAt || 0).getTime();
-        const lTime = new Date(ld.updatedAt || 0).getTime();
-        if (lTime >= sTime) {
-          map.set(ld.id, ld);
+    // Check for any uncommitted offline drafts that have never been synced to the server
+    const offlineDraftIds = new Set<string>();
+    try {
+      const raw = safeStorage.getItem('skt_offline_queue_v1');
+      if (raw) {
+        const queue = JSON.parse(raw);
+        if (Array.isArray(queue)) {
+          for (const item of queue) {
+            if (item.type === 'save_draft' && item.payload?.id) {
+              offlineDraftIds.add(item.payload.id);
+            }
+          }
         }
       }
+    } catch {
+      // ignore
+    }
+
+    // Merge or prioritize newer local drafts ONLY if they exist on the server
+    // or are legitimately queued uncommitted offline drafts.
+    for (const ld of local) {
+      const sd = map.get(ld.id);
+      if (sd) {
+        const sTime = new Date(sd.updatedAt || 0).getTime();
+        const lTime = new Date(ld.updatedAt || 0).getTime();
+        if (lTime > sTime) {
+          map.set(ld.id, ld);
+        }
+      } else if (offlineDraftIds.has(ld.id)) {
+        // Legitimate offline-created draft not yet synced to server
+        map.set(ld.id, ld);
+      }
+      // If not on server and not in offline queue, it was deleted on the server.
+      // Do NOT resurrect it!
     }
 
     const merged = Array.from(map.values()).sort(
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     );
     this.saveDrafts(merged);
+
+    // If activeDraftId is no longer present in merged drafts, reset activeDraftId
+    const activeId = this.getActiveDraftId();
+    if (activeId && !merged.some((d) => d.id === activeId)) {
+      this.setActiveDraftId(merged.length > 0 ? merged[0].id : '');
+    }
+
     return merged;
   }
 

@@ -11,6 +11,7 @@ export interface NavigationState {
 export const NAV_STORAGE_KEY = 'skt_nav_state_v1';
 
 export const VALID_NAV_TABS: readonly NavTab[] = [
+  'home',
   'workspace',
   'drafts',
   'invoices',
@@ -30,6 +31,7 @@ export const DEFAULT_NAV_STATE: NavigationState = {
 export function normalizeTab(rawTab?: string | null): NavTab | null {
   if (!rawTab || typeof rawTab !== 'string') return null;
   const cleaned = rawTab.trim().toLowerCase();
+  if (cleaned === 'home' || cleaned === 'overview') return 'home';
   if (cleaned === 'workspace') return 'workspace';
   if (cleaned === 'drafts' || cleaned === 'draft') return 'drafts';
   if (cleaned === 'invoices' || cleaned === 'invoice' || cleaned === 'history') return 'invoices';

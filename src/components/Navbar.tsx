@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
+  Home as HomeIcon,
   FileText,
   Clock,
   Users,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react';
 import type { SyncStatus } from '../services/syncService';
 
-export type NavTab = 'workspace' | 'drafts' | 'invoices' | 'parties' | 'settings';
+export type NavTab = 'home' | 'workspace' | 'drafts' | 'invoices' | 'parties' | 'settings';
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -23,6 +24,7 @@ interface NavbarProps {
   syncStatus?: SyncStatus;
   currentUser?: string | null;
   onLogout?: () => void;
+  draftsCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,6 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   syncStatus = 'synced',
   currentUser,
   onLogout,
+  draftsCount,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -71,7 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Brand & Identity (Simplified: No SK logo, no Dyeing Process pill) */}
           <div
             className="flex flex-col justify-center cursor-pointer shrink min-w-0"
-            onClick={() => setActiveTab('workspace')}
+            onClick={() => setActiveTab('home')}
           >
             <span className="font-extrabold text-slate-900 tracking-tight text-sm sm:text-base md:text-lg truncate">
               Sri Krishna Textile
@@ -117,6 +120,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
+            {/* 0. Home Tab */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('home')}
+              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                activeTab === 'home'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+              title="Business Overview"
+            >
+              <HomeIcon className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Home</span>
+            </button>
+
             {/* 1. Workspace Tab */}
             <button
               type="button"
@@ -145,6 +163,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Layers className="w-4 h-4 shrink-0" />
               <span className="hidden sm:inline">Drafts</span>
+              {typeof draftsCount === 'number' && draftsCount > 0 && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    activeTab === 'drafts' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                  }`}
+                >
+                  {draftsCount}
+                </span>
+              )}
             </button>
 
             {/* 3. History Tab */}

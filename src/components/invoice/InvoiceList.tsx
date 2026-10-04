@@ -5,10 +5,6 @@ import {
   Calendar,
   Clock,
   ArrowUpDown,
-  IndianRupee,
-  FileCheck2,
-  AlertCircle,
-  CheckCircle2,
   Plus,
 } from 'lucide-react';
 import type { Invoice } from '../../domain/types';
@@ -196,31 +192,6 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
     sortBy,
   ]);
 
-  // Aggregate Ledger Totals
-  const ledgerSummary = useMemo(() => {
-    let totalInvoiced = 0;
-    let totalPaid = 0;
-    let totalOutstanding = 0;
-
-    processedInvoices.forEach((inv) => {
-      if (inv.status === 'cancelled') return;
-      const amt = Number(inv.calculations?.totalAmount || 0);
-      const paid = Number(inv.paidAmount || 0);
-      const outstanding = Number(inv.outstandingAmount ?? (amt - paid));
-
-      totalInvoiced += amt;
-      totalPaid += paid;
-      totalOutstanding += outstanding;
-    });
-
-    return {
-      count: processedInvoices.length,
-      totalInvoiced,
-      totalPaid,
-      totalOutstanding,
-    };
-  }, [processedInvoices]);
-
   const formatCurrency = (val: number) => {
     return `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
@@ -231,10 +202,10 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>Invoice Archive & Ledger</span>
+            <span>Invoice History</span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Complete repository of finalized business bills, payment records, and customer ledger balances.
+            Search, filter, and manage finalized invoices.
           </p>
         </div>
 
@@ -246,61 +217,6 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
           <Plus className="w-4 h-4" />
           <span>Create New Bill</span>
         </button>
-      </div>
-
-      {/* Summary Financial Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Total Invoices */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500 mb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider">Invoices</span>
-            <FileCheck2 className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-slate-900">
-            {ledgerSummary.count}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Matching current filters</div>
-        </div>
-
-        {/* Total Invoiced */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500 mb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider">Total Billed</span>
-            <IndianRupee className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-slate-900 truncate">
-            {formatCurrency(ledgerSummary.totalInvoiced)}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Gross billed value</div>
-        </div>
-
-        {/* Total Received */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-emerald-600 mb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Total Received
-            </span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-emerald-600 truncate">
-            {formatCurrency(ledgerSummary.totalPaid)}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Payments cleared</div>
-        </div>
-
-        {/* Total Outstanding Amount */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-amber-200/80 bg-amber-50/20 shadow-2xs">
-          <div className="flex items-center justify-between text-amber-700 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
-              Outstanding Amount
-            </span>
-            <AlertCircle className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="text-lg sm:text-xl font-bold font-mono text-amber-700 truncate">
-            {formatCurrency(ledgerSummary.totalOutstanding)}
-          </div>
-          <div className="text-[10px] text-amber-800/80 mt-0.5">Pending collection</div>
-        </div>
       </div>
 
       {/* Filter and Search Bar */}

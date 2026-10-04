@@ -204,3 +204,46 @@ export function validateInvoiceForFinalization(data: {
     errors,
   };
 }
+
+/**
+ * Detects whether a temporary in-progress bill has meaningful user data entered.
+ * Used to guard against phantom/empty draft creation until deliberate bill input occurs.
+ */
+export function hasMeaningfulBillContent(partyId: string, dcs: DCGroup[]): boolean {
+  if (partyId && partyId.trim() !== '') {
+    return true;
+  }
+  if (!dcs || dcs.length === 0) {
+    return false;
+  }
+  if (dcs.length > 1) {
+    return true;
+  }
+  const firstDc = dcs[0];
+  if (firstDc.ourDcNumber && firstDc.ourDcNumber.trim() !== '') {
+    return true;
+  }
+  if (firstDc.partyDcNumber && firstDc.partyDcNumber.trim() !== '') {
+    return true;
+  }
+  if (!firstDc.workEntries || firstDc.workEntries.length === 0) {
+    return false;
+  }
+  if (firstDc.workEntries.length > 1) {
+    return true;
+  }
+  const firstEntry = firstDc.workEntries[0];
+  if (firstEntry.description && firstEntry.description.trim() !== '') {
+    return true;
+  }
+  if (Number(firstEntry.rolls) > 0) {
+    return true;
+  }
+  if (Number(firstEntry.weightKg) > 0 || (firstEntry.weightDisplay && firstEntry.weightDisplay.trim() !== '')) {
+    return true;
+  }
+  if (Number(firstEntry.rate) > 0) {
+    return true;
+  }
+  return false;
+}

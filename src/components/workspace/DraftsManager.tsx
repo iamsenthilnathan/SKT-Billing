@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Trash2, Clock, Calendar, FileText, CheckCircle2, Layers } from 'lucide-react';
 import type { BillDraft, Party } from '../../domain/types';
 
-export type DraftSortOption = 'recently_modified' | 'bill_date' | 'draft_number';
+export type DraftSortOption = 'recently_modified' | 'bill_date';
 
 interface DraftsManagerProps {
   drafts: BillDraft[];
@@ -23,6 +23,13 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
 }) => {
   const [sortBy, setSortBy] = useState<DraftSortOption>('recently_modified');
 
+  // Purge obsolete runaway counter from previous versions
+  useEffect(() => {
+    try {
+      localStorage.removeItem('skt_draft_numbers_v1');
+    } catch {}
+  }, []);
+
   const getPartyName = (partyId?: string) => {
     if (!partyId) return 'No Customer Selected';
     const party = parties.find((p) => p.id === partyId);
@@ -39,94 +46,30 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
     }
   };
 
-  const getDraftCreationTime = (draft: BillDraft): number => {
-    if (draft.createdAt) {
-      const t = new Date(draft.createdAt).getTime();
-      if (!isNaN(t) && t > 0) return t;
-    }
-    const match = draft.id.match(/^draft_(\d+)/);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-    const upTime = draft.updatedAt ? new Date(draft.updatedAt).getTime() : 0;
-    return isNaN(upTime) ? 0 : upTime;
-  };
+  // Sort drafts deterministically and dynamically assign sequential display numbers (1..N)
+  const sortedDrafts = useMemo(() => {
+    const list = [...drafts];
 
-  // Assign stable draft numbers that persist across deletions and reloads
-  const draftsWithMeta = useMemo(() => {
-    let storedMap: Record<string, number> = {};
-    try {
-      const raw = localStorage.getItem('skt_draft_numbers_v1');
-      if (raw) storedMap = JSON.parse(raw);
-    } catch (_) {}
+    list.sort((a, b) => {
+      if (sortBy === 'bill_date') {
+        const aDate = a.invoiceDate || '';
+        const bDate = b.invoiceDate || '';
+        const cmp = bDate.localeCompare(aDate);
+        if (cmp !== 0) return cmp;
+      }
 
-    let maxNum = 0;
-    Object.values(storedMap).forEach((n) => {
-      if (typeof n === 'number' && n > maxNum) maxNum = n;
-    });
-
-    const chronological = [...drafts].sort((a, b) => {
-      const aTime = getDraftCreationTime(a);
-      const bTime = getDraftCreationTime(b);
-      if (aTime !== bTime) return aTime - bTime;
+      // Default: Recently modified descending (newest first)
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      if (bTime !== aTime) return bTime - aTime;
       return a.id.localeCompare(b.id);
     });
 
-    let updated = false;
-    chronological.forEach((d) => {
-      if ((d as any).draftNumber) {
-        storedMap[d.id] = (d as any).draftNumber;
-        if ((d as any).draftNumber > maxNum) maxNum = (d as any).draftNumber;
-      } else if (!storedMap[d.id]) {
-        maxNum += 1;
-        storedMap[d.id] = maxNum;
-        updated = true;
-      }
-    });
-
-    if (updated) {
-      try {
-        localStorage.setItem('skt_draft_numbers_v1', JSON.stringify(storedMap));
-      } catch (_) {}
-    }
-
-    return drafts.map((draft) => ({
+    return list.map((draft, idx) => ({
       draft,
-      draftNumber: (draft as any).draftNumber || storedMap[draft.id] || 1,
+      draftNumber: idx + 1,
     }));
-  }, [drafts]);
-
-  // Sort drafts visually based on selected sort option
-  const sortedDrafts = useMemo(() => {
-    const list = [...draftsWithMeta];
-
-    list.sort((a, b) => {
-      if (sortBy === 'recently_modified') {
-        const aTime = new Date(a.draft.updatedAt || a.draft.createdAt || 0).getTime();
-        const bTime = new Date(b.draft.updatedAt || b.draft.createdAt || 0).getTime();
-        if (bTime !== aTime) return bTime - aTime;
-        return b.draftNumber - a.draftNumber;
-      }
-
-      if (sortBy === 'bill_date') {
-        const aDate = a.draft.invoiceDate || '';
-        const bDate = b.draft.invoiceDate || '';
-        const cmp = bDate.localeCompare(aDate);
-        if (cmp !== 0) return cmp;
-        const aTime = new Date(a.draft.updatedAt || a.draft.createdAt || 0).getTime();
-        const bTime = new Date(b.draft.updatedAt || b.draft.createdAt || 0).getTime();
-        return bTime - aTime;
-      }
-
-      if (sortBy === 'draft_number') {
-        return b.draftNumber - a.draftNumber;
-      }
-
-      return 0;
-    });
-
-    return list;
-  }, [draftsWithMeta, sortBy]);
+  }, [drafts, sortBy]);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 sm:p-6 space-y-5">
@@ -139,11 +82,8 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Unfinished Bills / Drafts
+                Drafts ({drafts.length})
               </h1>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-700">
-                {drafts.length} {drafts.length === 1 ? 'draft' : 'drafts'}
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               Switch between concurrent drafts without losing work. Drafts never consume invoice numbers.
@@ -165,7 +105,6 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
             >
               <option value="recently_modified">Recently Modified</option>
               <option value="bill_date">Bill Date</option>
-              <option value="draft_number">Draft Number</option>
             </select>
           </div>
 
@@ -184,7 +123,7 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
       {drafts.length === 0 ? (
         <div className="py-12 text-center text-slate-500 space-y-3">
           <Layers className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="text-sm font-semibold text-slate-800">No active drafts</h3>
+          <h3 className="text-sm font-semibold text-slate-800">No drafts yet</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
             Click "+ New Bill" above to create an independent billing draft.
           </p>
@@ -224,7 +163,7 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="text-xs font-bold text-slate-700 truncate">
-                        Draft #{draftNumber}
+                        Draft {draftNumber}
                       </span>
                       {isActive && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-600 text-white uppercase tracking-wider shrink-0">

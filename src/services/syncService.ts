@@ -136,9 +136,11 @@ class SyncService {
         if (!localDraft || serverDraftTime > localDraftTime) {
           storageService.saveActiveDraft(data.activeDraft);
         }
+      } else {
+        storageService.mergeDrafts([]);
       }
 
-      this.notifyListeners(data, 'synced');
+      this.notifyListeners({ ...data, drafts: storageService.getDrafts() }, 'synced');
       return data;
     } catch {
       this.setStatus('offline');
@@ -182,6 +184,20 @@ class SyncService {
 
   public async deleteDraft(draftId: string): Promise<boolean> {
     storageService.deleteDraft(draftId);
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+        if (raw) {
+          const queue: QueuedAction[] = JSON.parse(raw);
+          const filtered = queue.filter(
+            (action) => !(action.type === 'save_draft' && action.payload?.id === draftId)
+          );
+          localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(filtered));
+        }
+      } catch (e) {
+        console.error('Failed to clean offline queue for draft', e);
+      }
+    }
     try {
       await authFetch(`/api/drafts/${draftId}`, {
         method: 'DELETE',

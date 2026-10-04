@@ -95,6 +95,7 @@ describe('Navigation State Persistence Engine', () => {
 
   describe('Tab Normalization', () => {
     it('normalizes primary nav tabs', () => {
+      expect(normalizeTab('home')).toBe('home');
       expect(normalizeTab('workspace')).toBe('workspace');
       expect(normalizeTab('drafts')).toBe('drafts');
       expect(normalizeTab('invoices')).toBe('invoices');
@@ -103,6 +104,7 @@ describe('Navigation State Persistence Engine', () => {
     });
 
     it('normalizes common synonyms and aliases', () => {
+      expect(normalizeTab('overview')).toBe('home');
       expect(normalizeTab('history')).toBe('invoices');
       expect(normalizeTab('invoice')).toBe('invoices');
       expect(normalizeTab('customers')).toBe('parties');
@@ -116,6 +118,7 @@ describe('Navigation State Persistence Engine', () => {
       expect(normalizeTab('  HISTORY  ')).toBe('invoices');
       expect(normalizeTab('Parties')).toBe('parties');
       expect(normalizeTab('WORKSpace')).toBe('workspace');
+      expect(normalizeTab('  HOME  ')).toBe('home');
     });
 
     it('returns null for unrecognized or invalid strings', () => {
@@ -137,6 +140,8 @@ describe('Navigation State Persistence Engine', () => {
     });
 
     it('parses valid top-level section hashes', () => {
+      expect(parseNavigationHash('#home')).toEqual({ tab: 'home', invoiceId: null });
+      expect(parseNavigationHash('#/home')).toEqual({ tab: 'home', invoiceId: null });
       expect(parseNavigationHash('#workspace')).toEqual({ tab: 'workspace', invoiceId: null });
       expect(parseNavigationHash('#/workspace')).toEqual({ tab: 'workspace', invoiceId: null });
       expect(parseNavigationHash('#drafts')).toEqual({ tab: 'drafts', invoiceId: null });
@@ -191,6 +196,7 @@ describe('Navigation State Persistence Engine', () => {
 
   describe('Hash Formatting', () => {
     it('formats top-level section hashes cleanly', () => {
+      expect(formatNavigationHash({ tab: 'home' })).toBe('#home');
       expect(formatNavigationHash({ tab: 'workspace' })).toBe('#workspace');
       expect(formatNavigationHash({ tab: 'drafts' })).toBe('#drafts');
       expect(formatNavigationHash({ tab: 'invoices' })).toBe('#invoices');

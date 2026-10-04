@@ -4,6 +4,7 @@ import {
   calculateInvoiceFinancials,
   getFinancialYear,
   validateInvoiceForFinalization,
+  hasMeaningfulBillContent,
 } from '../calculations';
 import type { DCGroup } from '../types';
 
@@ -210,5 +211,105 @@ describe('Financial Calculations Engine', () => {
 
     expect(validCheck.isValid).toBe(true);
     expect(validCheck.errors).toHaveLength(0);
+  });
+});
+
+describe('hasMeaningfulBillContent Guard', () => {
+  it('returns false for completely blank bill', () => {
+    const blankDc: DCGroup = {
+      id: 'dc-1',
+      ourDcNumber: '',
+      partyDcNumber: '',
+      partyDcDate: '2026-10-04',
+      sortOrder: 0,
+      workEntries: [
+        {
+          id: 'w-1',
+          description: '',
+          rolls: 0,
+          weightDisplay: '',
+          weightKg: 0,
+          rate: 0,
+          amount: 0,
+          sortOrder: 0,
+        },
+      ],
+    };
+    expect(hasMeaningfulBillContent('', [])).toBe(false);
+    expect(hasMeaningfulBillContent('', [blankDc])).toBe(false);
+  });
+
+  it('returns true when a party is selected', () => {
+    expect(hasMeaningfulBillContent('party_123', [])).toBe(true);
+  });
+
+  it('returns true when ourDcNumber or partyDcNumber is entered', () => {
+    const dcWithOurNumber: DCGroup = {
+      id: 'dc-1',
+      ourDcNumber: '101',
+      partyDcNumber: '',
+      partyDcDate: '2026-10-04',
+      sortOrder: 0,
+      workEntries: [],
+    };
+    expect(hasMeaningfulBillContent('', [dcWithOurNumber])).toBe(true);
+
+    const dcWithPartyNumber: DCGroup = {
+      id: 'dc-1',
+      ourDcNumber: '',
+      partyDcNumber: 'P-99',
+      partyDcDate: '2026-10-04',
+      sortOrder: 0,
+      workEntries: [],
+    };
+    expect(hasMeaningfulBillContent('', [dcWithPartyNumber])).toBe(true);
+  });
+
+  it('returns true when work entry has rolls, weight, rate, or description', () => {
+    const makeDc = (entryUpdates: Partial<DCGroup['workEntries'][0]>): DCGroup => ({
+      id: 'dc-1',
+      ourDcNumber: '',
+      partyDcNumber: '',
+      partyDcDate: '2026-10-04',
+      sortOrder: 0,
+      workEntries: [
+        {
+          id: 'w-1',
+          description: '',
+          rolls: 0,
+          weightDisplay: '',
+          weightKg: 0,
+          rate: 0,
+          amount: 0,
+          sortOrder: 0,
+          ...entryUpdates,
+        },
+      ],
+    });
+
+    expect(hasMeaningfulBillContent('', [makeDc({ description: 'Cotton Bleaching' })])).toBe(true);
+    expect(hasMeaningfulBillContent('', [makeDc({ rolls: 5 })])).toBe(true);
+    expect(hasMeaningfulBillContent('', [makeDc({ weightKg: 100 })])).toBe(true);
+    expect(hasMeaningfulBillContent('', [makeDc({ weightDisplay: '100' })])).toBe(true);
+    expect(hasMeaningfulBillContent('', [makeDc({ rate: 45 })])).toBe(true);
+  });
+
+  it('returns true when extra work entries or DC blocks are added', () => {
+    const dcWithMultipleEntries: DCGroup = {
+      id: 'dc-1',
+      ourDcNumber: '',
+      partyDcNumber: '',
+      partyDcDate: '2026-10-04',
+      sortOrder: 0,
+      workEntries: [
+        { id: 'w-1', description: '', rolls: 0, weightDisplay: '', weightKg: 0, rate: 0, amount: 0, sortOrder: 0 },
+        { id: 'w-2', description: '', rolls: 0, weightDisplay: '', weightKg: 0, rate: 0, amount: 0, sortOrder: 1 },
+      ],
+    };
+    expect(hasMeaningfulBillContent('', [dcWithMultipleEntries])).toBe(true);
+
+    const dc1: DCGroup = { id: 'dc-1', ourDcNumber: '', partyDcNumber: '', partyDcDate: '2026-10-04', sortOrder: 0, workEntries: [] };
+    const dc2: DCGroup = { id: 'dc-2', ourDcNumber: '', partyDcNumber: '', partyDcDate: '2026-10-04', sortOrder: 1, workEntries: [] };
+    expect(hasMeaningfulBillContent('', [dc1, dc2])).toBe(true);
   });
 });

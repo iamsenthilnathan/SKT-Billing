@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Calculator,
-  Save,
   ArrowRight,
   Layers,
   Scale,
@@ -15,7 +14,7 @@ interface SummaryPanelProps {
   dcCount: number;
   validationErrors?: string[];
   isReadyToFinalize: boolean;
-  onSaveDraft: () => void;
+  onSaveDraft?: () => void;
   onFinalize: () => void;
   onAttemptFinalize?: () => void;
   onDiscardDraft: () => void;
@@ -25,7 +24,7 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({
   calculations,
   dcCount,
   isReadyToFinalize,
-  onSaveDraft,
+  onSaveDraft: _onSaveDraft,
   onFinalize,
   onAttemptFinalize,
   onDiscardDraft,
@@ -138,24 +137,13 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({
             </p>
           )}
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onSaveDraft}
-              className="flex-1 py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Save className="w-3.5 h-3.5 text-slate-500" />
-              <span>Save Draft</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onDiscardDraft}
-              className="py-2 px-3 rounded-xl text-slate-400 hover:text-rose-600 text-xs font-medium transition-colors cursor-pointer"
-            >
-              Discard
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onDiscardDraft}
+            className="w-full py-2.5 px-3 rounded-xl border border-slate-200 hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          >
+            Discard
+          </button>
         </div>
       </div>
 
@@ -205,11 +193,11 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onSaveDraft}
-              className="p-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
-              title="Save draft"
+              onClick={onDiscardDraft}
+              className="py-2.5 px-3 rounded-xl border border-slate-200 text-slate-500 hover:text-rose-600 text-xs font-medium cursor-pointer"
+              title="Discard bill"
             >
-              <Save className="w-4 h-4" />
+              Discard
             </button>
 
             <button

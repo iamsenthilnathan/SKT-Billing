@@ -10,6 +10,7 @@ import { InvoiceView } from './components/invoice/InvoiceView';
 import { InvoiceList } from './components/invoice/InvoiceList';
 import { PartyManager } from './components/parties/PartyManager';
 import { SettingsManager } from './components/settings/SettingsManager';
+import { HomePage } from './components/home/HomePage';
 import { LoginPage } from './components/auth/LoginPage';
 import { Plus, Building2, Loader2 } from 'lucide-react';
 import type {
@@ -27,6 +28,7 @@ import {
   calculateInvoiceFinancials,
   getFinancialYear,
   validateInvoiceForFinalization,
+  hasMeaningfulBillContent,
 } from './domain/calculations';
 import {
   type NavTab,
@@ -87,7 +89,7 @@ export function App() {
   const [drafts, setDrafts] = useState<BillDraft[]>(() => storageService.getDrafts());
   const [draftId, setDraftId] = useState<string>(() => {
     const active = storageService.getActiveDraft();
-    return active?.id || `draft_${Date.now()}`;
+    return active?.id || '';
   });
   const [selectedPartyId, setSelectedPartyId] = useState<string>(() => {
     const active = storageService.getActiveDraft();
@@ -102,8 +104,7 @@ export function App() {
     if (active && active.dcs && active.dcs.length > 0) {
       return active.dcs;
     }
-    const today = new Date().toISOString().split('T')[0];
-    return [createInitialDc(today)];
+    return [createInitialDc(new Date().toISOString().split('T')[0])];
   });
 
   const [autosaveStatus, setAutosaveStatus] = useState<'saved' | 'saving' | 'idle'>('saved');
@@ -159,7 +160,7 @@ export function App() {
       cloudSyncTimeoutRef.current = null;
     }
 
-    if (!hasPendingCloudSyncRef.current && !pendingDraftRef.current) {
+    if (!draftId || (!hasPendingCloudSyncRef.current && !pendingDraftRef.current)) {
       return;
     }
 
@@ -260,6 +261,38 @@ export function App() {
       }
       if (state.drafts) {
         setDrafts(state.drafts);
+        if (state.drafts.length === 0) {
+          setDraftId((currentId) => {
+            if (currentId) {
+              setSelectedPartyId('');
+              setDcs([createInitialDc(new Date().toISOString().split('T')[0])]);
+              storageService.setActiveDraftId('');
+              lastSyncedHashRef.current = '';
+              return '';
+            }
+            setDcs((prevDcs) => (prevDcs.length === 0 ? [createInitialDc(new Date().toISOString().split('T')[0])] : prevDcs));
+            return '';
+          });
+        } else {
+          setDraftId((currentId) => {
+            const exists = state.drafts!.some((d) => d.id === currentId);
+            if (!exists || !currentId) {
+              const first = state.drafts![0];
+              setSelectedPartyId(first.partyId || '');
+              setInvoiceDate(first.invoiceDate || new Date().toISOString().split('T')[0]);
+              setDcs(first.dcs || []);
+              storageService.setActiveDraftId(first.id);
+              lastSyncedHashRef.current = JSON.stringify({
+                id: first.id,
+                partyId: first.partyId || '',
+                invoiceDate: first.invoiceDate || '',
+                dcs: first.dcs || [],
+              });
+              return first.id;
+            }
+            return currentId;
+          });
+        }
       }
     });
 
@@ -272,7 +305,7 @@ export function App() {
   // Handle User Logout
   const handleLogout = useCallback(async () => {
     try {
-      if (hasPendingCloudSyncRef.current) {
+      if (hasPendingCloudSyncRef.current && draftId) {
         await flushCloudSync();
       }
     } catch {
@@ -300,10 +333,9 @@ export function App() {
       setSelectedPartyId('');
       setViewingInvoice(null);
       setRateMemory([]);
-      const today = new Date().toISOString().split('T')[0];
-      setDraftId(`draft_${Date.now()}`);
-      setDcs([createInitialDc(today)]);
-      setInvoiceDate(today);
+      setDraftId('');
+      setDcs([]);
+      setInvoiceDate(new Date().toISOString().split('T')[0]);
       setActiveTab('workspace');
       setHasAttemptedFinalize(false);
       setAutosaveStatus('saved');
@@ -316,11 +348,71 @@ export function App() {
       storageService.saveRateMemory([]);
       storageService.setActiveDraftId('');
     }
-  }, [flushCloudSync]);
+  }, [flushCloudSync, draftId]);
 
   // Immediate Local Persistence & 10-Second Debounced Cloud Sync (Per Draft)
   useEffect(() => {
-    if (!selectedPartyId && dcs.length === 0) return;
+    if (dcs.length === 0) return;
+
+    // A. Unpromoted Temporary Blank Bill -> Promote only upon deliberate meaningful input
+    if (!draftId) {
+      if (hasMeaningfulBillContent(selectedPartyId, dcs)) {
+        const newDraftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const draftPayload: BillDraft = {
+          id: newDraftId,
+          partyId: selectedPartyId,
+          invoiceDate,
+          dcs,
+          calculations,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        storageService.saveDraft(draftPayload);
+        storageService.setActiveDraftId(newDraftId);
+        setDraftId(newDraftId);
+        setDrafts(storageService.getDrafts());
+        pendingDraftRef.current = draftPayload;
+        hasPendingCloudSyncRef.current = true;
+        lastSyncedHashRef.current = JSON.stringify({
+          id: newDraftId,
+          partyId: selectedPartyId,
+          invoiceDate,
+          dcs,
+        });
+
+        if (cloudSyncTimeoutRef.current) clearTimeout(cloudSyncTimeoutRef.current);
+        cloudSyncTimeoutRef.current = setTimeout(async () => {
+          if (!hasPendingCloudSyncRef.current || !pendingDraftRef.current) return;
+          const toSync = pendingDraftRef.current;
+          hasPendingCloudSyncRef.current = false;
+          setAutosaveStatus('saving');
+          try {
+            const success = await syncService.pushDraft(toSync);
+            if (success) {
+              lastSyncedHashRef.current = JSON.stringify({
+                id: toSync.id,
+                partyId: toSync.partyId,
+                invoiceDate: toSync.invoiceDate,
+                dcs: toSync.dcs,
+              });
+              setLastSavedTime(
+                new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+              );
+            }
+          } catch (err) {
+            console.error('Debounced cloud sync failed', err);
+          } finally {
+            setAutosaveStatus('saved');
+          }
+        }, CLOUD_SYNC_DEBOUNCE_MS);
+      }
+      return;
+    }
+
+    // B. Promoted Draft -> Standard Autosave
+    const draftExists = drafts.some((d) => d.id === draftId);
+    if (!draftExists) return;
 
     const currentHash = JSON.stringify({ id: draftId, partyId: selectedPartyId, invoiceDate, dcs });
     if (currentHash === lastSyncedHashRef.current) {
@@ -374,7 +466,7 @@ export function App() {
     return () => {
       if (cloudSyncTimeoutRef.current) clearTimeout(cloudSyncTimeoutRef.current);
     };
-  }, [draftId, selectedPartyId, invoiceDate, dcs, calculations]);
+  }, [draftId, selectedPartyId, invoiceDate, dcs, calculations, drafts]);
 
   // Flush pending changes on tab hidden or browser unload
   useEffect(() => {
@@ -479,7 +571,7 @@ export function App() {
     };
   }, [activeTab, invoices, flushCloudSync]);
 
-  // Handler: Start New Clean Bill (Creates new independent draft)
+  // Handler: Start New Clean Bill (Opens blank workspace form without creating an empty draft)
   const handleStartNewBill = async () => {
     if (hasPendingCloudSyncRef.current) {
       await flushCloudSync();
@@ -491,41 +583,18 @@ export function App() {
     hasPendingCloudSyncRef.current = false;
     pendingDraftRef.current = null;
 
-    const newDraftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const initialPartyId = parties[0]?.id || '';
     const initialDate = new Date().toISOString().split('T')[0];
     const initialDc = createInitialDc(initialDate);
 
-    const newDraft: BillDraft = {
-      id: newDraftId,
-      partyId: initialPartyId,
-      invoiceDate: initialDate,
-      dcs: [initialDc],
-      calculations: calculateInvoiceFinancials([initialDc], settings.defaultCgstRate, settings.defaultSgstRate),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    storageService.saveDraft(newDraft);
-    storageService.setActiveDraftId(newDraftId);
-    const updatedDrafts = storageService.getDrafts();
-    setDrafts(updatedDrafts);
-
-    setDraftId(newDraftId);
-    setSelectedPartyId(initialPartyId);
+    setDraftId('');
+    setSelectedPartyId('');
     setInvoiceDate(initialDate);
     setDcs([initialDc]);
     setViewingInvoice(null);
     setHasAttemptedFinalize(false);
-    lastSyncedHashRef.current = JSON.stringify({
-      id: newDraftId,
-      partyId: initialPartyId,
-      invoiceDate: initialDate,
-      dcs: [initialDc],
-    });
-
-    // Push new draft to cloud
-    syncService.pushDraft(newDraft);
+    storageService.setActiveDraftId('');
+    lastSyncedHashRef.current = '';
+    setActiveTab('workspace');
   };
 
   // Handler: Switch/Resume specific Draft
@@ -573,23 +642,60 @@ export function App() {
     hasPendingCloudSyncRef.current = false;
     pendingDraftRef.current = null;
 
-    await syncService.deleteDraft(draftIdToDelete);
+    storageService.deleteDraft(draftIdToDelete);
     const remainingDrafts = storageService.getDrafts();
     setDrafts(remainingDrafts);
 
     if (draftIdToDelete === draftId) {
       if (remainingDrafts.length > 0) {
-        await handleSelectDraft(remainingDrafts[0].id);
+        const next = remainingDrafts[0];
+        setDraftId(next.id);
+        setSelectedPartyId(next.partyId || '');
+        setInvoiceDate(next.invoiceDate || new Date().toISOString().split('T')[0]);
+        setDcs(
+          next.dcs && next.dcs.length > 0
+            ? next.dcs
+            : [createInitialDc(next.invoiceDate || new Date().toISOString().split('T')[0])]
+        );
+        storageService.setActiveDraftId(next.id);
+        lastSyncedHashRef.current = JSON.stringify({
+          id: next.id,
+          partyId: next.partyId || '',
+          invoiceDate: next.invoiceDate || '',
+          dcs: next.dcs || [],
+        });
       } else {
-        await handleStartNewBill();
+        const initialDate = new Date().toISOString().split('T')[0];
+        setDraftId('');
+        setSelectedPartyId('');
+        setInvoiceDate(initialDate);
+        setDcs([createInitialDc(initialDate)]);
+        storageService.setActiveDraftId('');
+        lastSyncedHashRef.current = '';
+        setHasAttemptedFinalize(false);
       }
+    }
+
+    try {
+      await syncService.deleteDraft(draftIdToDelete);
+    } catch (err) {
+      console.warn('Failed to delete draft from server', err);
     }
   };
 
   // Handler: Discard current Draft from Summary Panel
   const handleDiscardCurrentDraft = () => {
     if (window.confirm('Are you sure you want to discard this draft bill? This cannot be undone.')) {
-      handleDeleteDraft(draftId);
+      if (draftId) {
+        handleDeleteDraft(draftId);
+      } else {
+        const initialDate = new Date().toISOString().split('T')[0];
+        setSelectedPartyId('');
+        setInvoiceDate(initialDate);
+        setDcs([createInitialDc(initialDate)]);
+        setHasAttemptedFinalize(false);
+        lastSyncedHashRef.current = '';
+      }
     }
   };
 
@@ -647,7 +753,7 @@ export function App() {
     });
   };
 
-  const switchToRemainingDraftOrNew = () => {
+  const switchToRemainingDraftOrClear = () => {
     const remaining = storageService.getDrafts();
     if (remaining.length > 0) {
       const nextDraft = remaining[0];
@@ -667,31 +773,14 @@ export function App() {
         dcs: nextDraft.dcs || [],
       });
     } else {
-      const initId = `draft_${Date.now()}`;
-      const initDate = new Date().toISOString().split('T')[0];
-      const initDc = createInitialDc(initDate);
-      const initParty = parties[0]?.id || '';
-      const initDraft: BillDraft = {
-        id: initId,
-        partyId: initParty,
-        invoiceDate: initDate,
-        dcs: [initDc],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      storageService.saveDraft(initDraft);
-      storageService.setActiveDraftId(initId);
-      setDrafts([initDraft]);
-      setDraftId(initId);
-      setSelectedPartyId(initParty);
-      setInvoiceDate(initDate);
-      setDcs([initDc]);
-      lastSyncedHashRef.current = JSON.stringify({
-        id: initId,
-        partyId: initParty,
-        invoiceDate: initDate,
-        dcs: [initDc],
-      });
+      const initialDate = new Date().toISOString().split('T')[0];
+      setDraftId('');
+      setSelectedPartyId('');
+      setInvoiceDate(initialDate);
+      setDcs([createInitialDc(initialDate)]);
+      storageService.setActiveDraftId('');
+      lastSyncedHashRef.current = '';
+      setHasAttemptedFinalize(false);
     }
   };
 
@@ -727,7 +816,7 @@ export function App() {
       setInvoices(storageService.getInvoices());
       setRateMemory(storageService.getRateMemory());
       setDrafts(storageService.getDrafts());
-      switchToRemainingDraftOrNew();
+      switchToRemainingDraftOrClear();
       setViewingInvoice(finalized);
     } catch (err: any) {
       console.warn('Backend finalization offline, executing local sequence allocation', err);
@@ -780,7 +869,7 @@ export function App() {
       setRateMemory(storageService.getRateMemory());
       storageService.deleteDraft(draftId);
       setDrafts(storageService.getDrafts());
-      switchToRemainingDraftOrNew();
+      switchToRemainingDraftOrClear();
       setViewingInvoice(finalizedInvoice);
     }
   };
@@ -876,32 +965,6 @@ export function App() {
     syncService.pullLatest();
   };
 
-  // Ensure there is at least one draft on first run
-  useEffect(() => {
-    const currentDrafts = storageService.getDrafts();
-    if (currentDrafts.length === 0) {
-      const initId = `draft_${Date.now()}`;
-      const initDate = new Date().toISOString().split('T')[0];
-      const initDc = createInitialDc(initDate);
-      const initParty = parties[0]?.id || '';
-      const initDraft: BillDraft = {
-        id: initId,
-        partyId: initParty,
-        invoiceDate: initDate,
-        dcs: [initDc],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      storageService.saveDraft(initDraft);
-      storageService.setActiveDraftId(initId);
-      setDrafts([initDraft]);
-      setDraftId(initId);
-      setSelectedPartyId(initParty);
-      setInvoiceDate(initDate);
-      setDcs([initDc]);
-    }
-  }, []);
-
   if (authStatus === 'checking') {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-4">
@@ -933,11 +996,11 @@ export function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => {
-          if (activeTab === 'workspace' && tab !== 'workspace' && hasPendingCloudSyncRef.current) {
+          if (activeTab === 'workspace' && tab !== 'workspace' && hasPendingCloudSyncRef.current && draftId) {
             flushCloudSync();
           }
           if (viewingInvoice && tab === 'workspace') {
-            switchToRemainingDraftOrNew();
+            switchToRemainingDraftOrClear();
           }
           setViewingInvoice(null);
           setActiveTab(tab);
@@ -947,6 +1010,7 @@ export function App() {
         syncStatus={syncStatus}
         currentUser={currentUser}
         onLogout={handleLogout}
+        draftsCount={drafts.length}
       />
 
       <main className="flex-1 pb-16">
@@ -957,10 +1021,36 @@ export function App() {
             settings={settings}
             onBackToWorkspace={() => {
               setViewingInvoice(null);
-              switchToRemainingDraftOrNew();
+              switchToRemainingDraftOrClear();
             }}
             onRecordPayment={handleRecordPayment}
             onCancelInvoice={handleCancelInvoice}
+          />
+        ) : activeTab === 'home' ? (
+          /* VIEW: BUSINESS SNAPSHOT HOME */
+          <HomePage
+            invoices={invoices}
+            draftsCount={drafts.length}
+            onNewBill={async () => {
+              await handleStartNewBill();
+              setActiveTab('workspace');
+            }}
+            onSelectInvoice={(id) => {
+              if (hasPendingCloudSyncRef.current) {
+                flushCloudSync();
+              }
+              const target = invoices.find((inv) => inv.id === id);
+              if (target) {
+                setViewingInvoice(target);
+                setActiveTab('invoices');
+              }
+            }}
+            onViewAllInvoices={() => {
+              setActiveTab('invoices');
+            }}
+            onViewDrafts={() => {
+              setActiveTab('drafts');
+            }}
           />
         ) : activeTab === 'workspace' ? (
           /* VIEW: PRIMARY SUNDAY BILLING WORKSPACE */
@@ -1027,10 +1117,6 @@ export function App() {
                   dcCount={dcs.length}
                   validationErrors={validation.errors}
                   isReadyToFinalize={validation.isValid}
-                  onSaveDraft={async () => {
-                    await flushCloudSync();
-                    alert('Draft successfully saved! You can resume it anytime.');
-                  }}
                   onFinalize={handleFinalizeBill}
                   onAttemptFinalize={() => setHasAttemptedFinalize(true)}
                   onDiscardDraft={handleDiscardCurrentDraft}
