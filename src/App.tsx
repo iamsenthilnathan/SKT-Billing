@@ -223,6 +223,7 @@ export function App() {
         setAuthStatus('unauthenticated');
         clearBrowserHash();
         storageService.clearNavigationState();
+        setActiveTab('home');
       }
     }
     checkAuth();
@@ -232,6 +233,7 @@ export function App() {
       setAuthStatus('unauthenticated');
       clearBrowserHash();
       storageService.clearNavigationState();
+      setActiveTab('home');
     };
     window.addEventListener('skt:auth-error', handleAuthError);
 
@@ -336,7 +338,7 @@ export function App() {
       setDraftId('');
       setDcs([]);
       setInvoiceDate(new Date().toISOString().split('T')[0]);
-      setActiveTab('workspace');
+      setActiveTab('home');
       setHasAttemptedFinalize(false);
       setAutosaveStatus('saved');
       setLastSavedTime('');
@@ -533,11 +535,11 @@ export function App() {
       const hash = window.location.hash;
       const parsed = parseNavigationHash(hash);
       if (!parsed) {
-        if (activeTab !== 'workspace') {
+        if (activeTab !== 'home') {
           if (hasPendingCloudSyncRef.current) {
             flushCloudSync();
           }
-          setActiveTab('workspace');
+          setActiveTab('home');
           setViewingInvoice(null);
         }
         return;
@@ -984,6 +986,8 @@ export function App() {
       <LoginPage
         onLoginSuccess={(user) => {
           setCurrentUser(user.username);
+          setViewingInvoice(null);
+          setActiveTab('home');
           setAuthStatus('authenticated');
         }}
       />

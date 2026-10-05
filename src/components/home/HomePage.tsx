@@ -22,6 +22,23 @@ interface HomePageProps {
   onViewDrafts: () => void;
 }
 
+/**
+ * Calculates a friendly greeting based on the user's local device/browser time.
+ * - 5:00 AM–11:59 AM -> "Good morning"
+ * - 12:00 PM–4:59 PM -> "Good afternoon"
+ * - 5:00 PM–4:59 AM  -> "Good evening"
+ */
+export function getTimeBasedGreeting(date: Date = new Date()): string {
+  const hours = date.getHours();
+  if (hours >= 5 && hours < 12) {
+    return 'Good morning';
+  }
+  if (hours >= 12 && hours < 17) {
+    return 'Good afternoon';
+  }
+  return 'Good evening';
+}
+
 export const HomePage: React.FC<HomePageProps> = ({
   invoices,
   draftsCount,
@@ -30,6 +47,8 @@ export const HomePage: React.FC<HomePageProps> = ({
   onViewAllInvoices,
   onViewDrafts,
 }) => {
+  const greeting = getTimeBasedGreeting();
+
   // Aggregate Financial Ledger Totals (matching InvoiceList calculation)
   const ledgerSummary = useMemo(() => {
     let totalInvoiced = 0;
@@ -77,7 +96,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Good afternoon
+            {greeting}
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             Here’s what’s happening with Sri Krishna Textile today.

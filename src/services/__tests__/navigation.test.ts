@@ -302,11 +302,11 @@ describe('Navigation State Persistence Engine', () => {
       expect(result.effectiveHash).toBe('#invoices');
     });
 
-    it('safely falls back to Workspace when URL hash is invalid', () => {
+    it('safely falls back to Home when URL hash is invalid', () => {
       const result = resolveInitialNavigation('#invalid_random_tab', null, mockInvoices);
-      expect(result.tab).toBe('workspace');
+      expect(result.tab).toBe('home');
       expect(result.viewingInvoice).toBeNull();
-      expect(result.effectiveHash).toBe('#workspace');
+      expect(result.effectiveHash).toBe('#home');
     });
 
     it('restores section from localStorage if URL has no hash', () => {
@@ -325,11 +325,11 @@ describe('Navigation State Persistence Engine', () => {
       expect(result.effectiveHash).toBe('#invoices?id=inv_test_002');
     });
 
-    it('falls back to Workspace if both URL hash and localStorage are invalid or absent', () => {
+    it('falls back to Home if both URL hash and localStorage are invalid or absent', () => {
       const result = resolveInitialNavigation('', null, mockInvoices);
-      expect(result.tab).toBe('workspace');
+      expect(result.tab).toBe('home');
       expect(result.viewingInvoice).toBeNull();
-      expect(result.effectiveHash).toBe('#workspace');
+      expect(result.effectiveHash).toBe('#home');
     });
   });
 

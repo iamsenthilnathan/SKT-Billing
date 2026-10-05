@@ -1,7 +1,55 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
-import { HomePage } from '../HomePage';
+import { HomePage, getTimeBasedGreeting } from '../HomePage';
 import type { Invoice } from '../../../domain/types';
+
+describe('getTimeBasedGreeting Unit Tests', () => {
+  it('returns "Good morning" between 5:00 AM and 11:59 AM', () => {
+    // 5:00 AM
+    const date5am = new Date('2026-10-05T05:00:00');
+    expect(getTimeBasedGreeting(date5am)).toBe('Good morning');
+
+    // 8:30 AM
+    const date830am = new Date('2026-10-05T08:30:00');
+    expect(getTimeBasedGreeting(date830am)).toBe('Good morning');
+
+    // 11:59 AM
+    const date1159am = new Date('2026-10-05T11:59:59');
+    expect(getTimeBasedGreeting(date1159am)).toBe('Good morning');
+  });
+
+  it('returns "Good afternoon" between 12:00 PM and 4:59 PM', () => {
+    // 12:00 PM
+    const date12pm = new Date('2026-10-05T12:00:00');
+    expect(getTimeBasedGreeting(date12pm)).toBe('Good afternoon');
+
+    // 2:15 PM
+    const date215pm = new Date('2026-10-05T14:15:00');
+    expect(getTimeBasedGreeting(date215pm)).toBe('Good afternoon');
+
+    // 4:59 PM
+    const date459pm = new Date('2026-10-05T16:59:59');
+    expect(getTimeBasedGreeting(date459pm)).toBe('Good afternoon');
+  });
+
+  it('returns "Good evening" between 5:00 PM and 4:59 AM', () => {
+    // 5:00 PM
+    const date5pm = new Date('2026-10-05T17:00:00');
+    expect(getTimeBasedGreeting(date5pm)).toBe('Good evening');
+
+    // 10:30 PM
+    const date1030pm = new Date('2026-10-05T22:30:00');
+    expect(getTimeBasedGreeting(date1030pm)).toBe('Good evening');
+
+    // 12:00 AM (Midnight)
+    const date12am = new Date('2026-10-05T00:00:00');
+    expect(getTimeBasedGreeting(date12am)).toBe('Good evening');
+
+    // 4:59 AM
+    const date459am = new Date('2026-10-05T04:59:59');
+    expect(getTimeBasedGreeting(date459am)).toBe('Good evening');
+  });
+});
 
 const mockInvoices: Invoice[] = [
   {
@@ -135,7 +183,7 @@ describe('HomePage Component Unit Tests', () => {
     );
 
     // Header & Greeting
-    expect(html).toContain('Good afternoon');
+    expect(html).toContain(getTimeBasedGreeting());
     expect(html).toContain('Here’s what’s happening with Sri Krishna Textile today.');
 
     // Summary cards show zero values

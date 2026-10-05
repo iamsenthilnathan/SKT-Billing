@@ -20,7 +20,7 @@ export const VALID_NAV_TABS: readonly NavTab[] = [
 ] as const;
 
 export const DEFAULT_NAV_STATE: NavigationState = {
-  tab: 'workspace',
+  tab: 'home',
   invoiceId: null,
 };
 
@@ -92,7 +92,7 @@ export function parseNavigationHash(rawHash: string): NavigationState | null {
  * Formats a navigation state into a clean URL hash string.
  */
 export function formatNavigationHash(state: { tab: NavTab; invoiceId?: string | null }): string {
-  const normalized = normalizeTab(state.tab) || 'workspace';
+  const normalized = normalizeTab(state.tab) || 'home';
   if (normalized === 'invoices' && state.invoiceId && state.invoiceId.trim()) {
     return `#invoices?id=${encodeURIComponent(state.invoiceId.trim())}`;
   }
@@ -104,7 +104,7 @@ export function formatNavigationHash(state: { tab: NavTab; invoiceId?: string | 
  * Priority:
  *   1. Explicit URL hash
  *   2. Saved localStorage navigation state
- *   3. Default workspace
+ *   3. Default home
  *
  * Validates invoice existence if an invoice ID is requested.
  */
@@ -133,7 +133,7 @@ export function resolveInitialNavigation(
   }
 
   // Guarantee canonical tab name
-  const canonicalTab = normalizeTab(state.tab) || 'workspace';
+  const canonicalTab = normalizeTab(state.tab) || 'home';
   state = {
     tab: canonicalTab,
     invoiceId: canonicalTab === 'invoices' ? state.invoiceId : null,
