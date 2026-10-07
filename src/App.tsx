@@ -149,7 +149,10 @@ export function App() {
   const cloudSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDraftRef = useRef<BillDraft | null>(null);
   const hasPendingCloudSyncRef = useRef<boolean>(false);
-  const lastSyncedHashRef = useRef<string>(
+  const lastSavedLocalHashRef = useRef<string>(
+    JSON.stringify({ id: draftId, partyId: selectedPartyId, invoiceDate, dcs })
+  );
+  const lastCloudSyncedHashRef = useRef<string>(
     JSON.stringify({ id: draftId, partyId: selectedPartyId, invoiceDate, dcs })
   );
 
@@ -182,12 +185,13 @@ export function App() {
     try {
       const success = await syncService.pushDraft(toSync);
       if (success) {
-        lastSyncedHashRef.current = JSON.stringify({
+        lastSavedLocalHashRef.current = JSON.stringify({
           id: toSync.id,
           partyId: toSync.partyId,
           invoiceDate: toSync.invoiceDate,
           dcs: toSync.dcs,
         });
+        lastCloudSyncedHashRef.current = lastSavedLocalHashRef.current;
         setLastSavedTime(
           new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
         );
@@ -263,38 +267,6 @@ export function App() {
       }
       if (state.drafts) {
         setDrafts(state.drafts);
-        if (state.drafts.length === 0) {
-          setDraftId((currentId) => {
-            if (currentId) {
-              setSelectedPartyId('');
-              setDcs([createInitialDc(new Date().toISOString().split('T')[0])]);
-              storageService.setActiveDraftId('');
-              lastSyncedHashRef.current = '';
-              return '';
-            }
-            setDcs((prevDcs) => (prevDcs.length === 0 ? [createInitialDc(new Date().toISOString().split('T')[0])] : prevDcs));
-            return '';
-          });
-        } else {
-          setDraftId((currentId) => {
-            const exists = state.drafts!.some((d) => d.id === currentId);
-            if (!exists || !currentId) {
-              const first = state.drafts![0];
-              setSelectedPartyId(first.partyId || '');
-              setInvoiceDate(first.invoiceDate || new Date().toISOString().split('T')[0]);
-              setDcs(first.dcs || []);
-              storageService.setActiveDraftId(first.id);
-              lastSyncedHashRef.current = JSON.stringify({
-                id: first.id,
-                partyId: first.partyId || '',
-                invoiceDate: first.invoiceDate || '',
-                dcs: first.dcs || [],
-              });
-              return first.id;
-            }
-            return currentId;
-          });
-        }
       }
     });
 
@@ -370,55 +342,45 @@ export function App() {
           updatedAt: new Date().toISOString(),
         };
 
-        storageService.saveDraft(draftPayload);
-        storageService.setActiveDraftId(newDraftId);
-        setDraftId(newDraftId);
-        setDrafts(storageService.getDrafts());
-        pendingDraftRef.current = draftPayload;
-        hasPendingCloudSyncRef.current = true;
-        lastSyncedHashRef.current = JSON.stringify({
+        const currentHash = JSON.stringify({
           id: newDraftId,
           partyId: selectedPartyId,
           invoiceDate,
           dcs,
         });
 
+        // Set hash synchronously BEFORE state updates so subsequent renders don't loop
+        lastSavedLocalHashRef.current = currentHash;
+        storageService.saveDraft(draftPayload);
+        storageService.setActiveDraftId(newDraftId);
+        setDraftId(newDraftId);
+        setDrafts(storageService.getDrafts());
+        // Immediately persist initial draft creation to server / offline queue
+        hasPendingCloudSyncRef.current = false;
+        pendingDraftRef.current = null;
         if (cloudSyncTimeoutRef.current) clearTimeout(cloudSyncTimeoutRef.current);
-        cloudSyncTimeoutRef.current = setTimeout(async () => {
-          if (!hasPendingCloudSyncRef.current || !pendingDraftRef.current) return;
-          const toSync = pendingDraftRef.current;
-          hasPendingCloudSyncRef.current = false;
-          setAutosaveStatus('saving');
-          try {
-            const success = await syncService.pushDraft(toSync);
-            if (success) {
-              lastSyncedHashRef.current = JSON.stringify({
-                id: toSync.id,
-                partyId: toSync.partyId,
-                invoiceDate: toSync.invoiceDate,
-                dcs: toSync.dcs,
-              });
-              setLastSavedTime(
-                new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-              );
-            }
-          } catch (err) {
-            console.error('Debounced cloud sync failed', err);
-          } finally {
-            setAutosaveStatus('saved');
+        syncService.pushDraft(draftPayload).then((success) => {
+          if (success) {
+            lastCloudSyncedHashRef.current = currentHash;
+            setLastSavedTime(
+              new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+            );
           }
-        }, CLOUD_SYNC_DEBOUNCE_MS);
+        }).catch((err) => {
+          console.error('Initial draft push error:', err);
+        }).finally(() => {
+          setAutosaveStatus('saved');
+        });
       }
       return;
     }
 
     // B. Promoted Draft -> Standard Autosave
-    const draftExists = drafts.some((d) => d.id === draftId);
-    if (!draftExists) return;
-
     const currentHash = JSON.stringify({ id: draftId, partyId: selectedPartyId, invoiceDate, dcs });
-    if (currentHash === lastSyncedHashRef.current) {
-      setAutosaveStatus('saved');
+    if (currentHash === lastSavedLocalHashRef.current) {
+      if (!hasPendingCloudSyncRef.current) {
+        setAutosaveStatus('saved');
+      }
       return;
     }
 
@@ -431,11 +393,15 @@ export function App() {
       updatedAt: new Date().toISOString(),
     };
 
+    // Update local hash immediately
+    lastSavedLocalHashRef.current = currentHash;
+
     // 1. Immediate Local State Persistence
     storageService.saveDraft(draftPayload);
     setDrafts(storageService.getDrafts());
     pendingDraftRef.current = draftPayload;
     hasPendingCloudSyncRef.current = true;
+    setAutosaveStatus('saving');
 
     // 2. Debounce Cloud Sync by ~10 seconds of inactivity
     if (cloudSyncTimeoutRef.current) clearTimeout(cloudSyncTimeoutRef.current);
@@ -444,11 +410,10 @@ export function App() {
       if (!hasPendingCloudSyncRef.current || !pendingDraftRef.current) return;
       const toSync = pendingDraftRef.current;
       hasPendingCloudSyncRef.current = false;
-      setAutosaveStatus('saving');
       try {
         const success = await syncService.pushDraft(toSync);
         if (success) {
-          lastSyncedHashRef.current = JSON.stringify({
+          lastCloudSyncedHashRef.current = JSON.stringify({
             id: toSync.id,
             partyId: toSync.partyId,
             invoiceDate: toSync.invoiceDate,
@@ -468,7 +433,7 @@ export function App() {
     return () => {
       if (cloudSyncTimeoutRef.current) clearTimeout(cloudSyncTimeoutRef.current);
     };
-  }, [draftId, selectedPartyId, invoiceDate, dcs, calculations, drafts]);
+  }, [draftId, selectedPartyId, invoiceDate, dcs, calculations]);
 
   // Flush pending changes on tab hidden or browser unload
   useEffect(() => {
@@ -595,7 +560,8 @@ export function App() {
     setViewingInvoice(null);
     setHasAttemptedFinalize(false);
     storageService.setActiveDraftId('');
-    lastSyncedHashRef.current = '';
+    lastSavedLocalHashRef.current = '';
+    lastCloudSyncedHashRef.current = '';
     setActiveTab('workspace');
   };
 
@@ -626,12 +592,14 @@ export function App() {
         : [createInitialDc(target.invoiceDate || new Date().toISOString().split('T')[0])]
     );
     setHasAttemptedFinalize(false);
-    lastSyncedHashRef.current = JSON.stringify({
+    const hash = JSON.stringify({
       id: target.id,
       partyId: target.partyId || '',
       invoiceDate: target.invoiceDate || '',
       dcs: target.dcs || [],
     });
+    lastSavedLocalHashRef.current = hash;
+    lastCloudSyncedHashRef.current = hash;
     setDrafts(storageService.getDrafts());
   };
 
@@ -660,12 +628,14 @@ export function App() {
             : [createInitialDc(next.invoiceDate || new Date().toISOString().split('T')[0])]
         );
         storageService.setActiveDraftId(next.id);
-        lastSyncedHashRef.current = JSON.stringify({
+        const hash = JSON.stringify({
           id: next.id,
           partyId: next.partyId || '',
           invoiceDate: next.invoiceDate || '',
           dcs: next.dcs || [],
         });
+        lastSavedLocalHashRef.current = hash;
+        lastCloudSyncedHashRef.current = hash;
       } else {
         const initialDate = new Date().toISOString().split('T')[0];
         setDraftId('');
@@ -673,7 +643,8 @@ export function App() {
         setInvoiceDate(initialDate);
         setDcs([createInitialDc(initialDate)]);
         storageService.setActiveDraftId('');
-        lastSyncedHashRef.current = '';
+        lastSavedLocalHashRef.current = '';
+        lastCloudSyncedHashRef.current = '';
         setHasAttemptedFinalize(false);
       }
     }
@@ -696,7 +667,8 @@ export function App() {
         setInvoiceDate(initialDate);
         setDcs([createInitialDc(initialDate)]);
         setHasAttemptedFinalize(false);
-        lastSyncedHashRef.current = '';
+        lastSavedLocalHashRef.current = '';
+        lastCloudSyncedHashRef.current = '';
       }
     }
   };
@@ -768,12 +740,14 @@ export function App() {
           : [createInitialDc(nextDraft.invoiceDate || new Date().toISOString().split('T')[0])]
       );
       storageService.setActiveDraftId(nextDraft.id);
-      lastSyncedHashRef.current = JSON.stringify({
+      const hash = JSON.stringify({
         id: nextDraft.id,
         partyId: nextDraft.partyId || '',
         invoiceDate: nextDraft.invoiceDate || '',
         dcs: nextDraft.dcs || [],
       });
+      lastSavedLocalHashRef.current = hash;
+      lastCloudSyncedHashRef.current = hash;
     } else {
       const initialDate = new Date().toISOString().split('T')[0];
       setDraftId('');
@@ -781,7 +755,8 @@ export function App() {
       setInvoiceDate(initialDate);
       setDcs([createInitialDc(initialDate)]);
       storageService.setActiveDraftId('');
-      lastSyncedHashRef.current = '';
+      lastSavedLocalHashRef.current = '';
+      lastCloudSyncedHashRef.current = '';
       setHasAttemptedFinalize(false);
     }
   };
@@ -1058,7 +1033,7 @@ export function App() {
           />
         ) : activeTab === 'workspace' ? (
           /* VIEW: PRIMARY SUNDAY BILLING WORKSPACE */
-          <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
             {/* Desktop Two-Panel Layout */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* LEFT COLUMN: Active Assembly Workbench (8 Cols) */}
@@ -1130,22 +1105,20 @@ export function App() {
           </div>
         ) : activeTab === 'drafts' ? (
           /* VIEW: DEDICATED DRAFTS TAB */
-          <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-4 sm:py-6">
-            <DraftsManager
-              drafts={drafts}
-              activeDraftId={draftId}
-              parties={parties}
-              onSelectDraft={async (id) => {
-                await handleSelectDraft(id);
-                setActiveTab('workspace');
-              }}
-              onNewDraft={async () => {
-                await handleStartNewBill();
-                setActiveTab('workspace');
-              }}
-              onDeleteDraft={handleDeleteDraft}
-            />
-          </div>
+          <DraftsManager
+            drafts={drafts}
+            activeDraftId={draftId}
+            parties={parties}
+            onSelectDraft={async (id) => {
+              await handleSelectDraft(id);
+              setActiveTab('workspace');
+            }}
+            onNewDraft={async () => {
+              await handleStartNewBill();
+              setActiveTab('workspace');
+            }}
+            onDeleteDraft={handleDeleteDraft}
+          />
         ) : activeTab === 'invoices' ? (
           /* VIEW: INVOICES ARCHIVE & SEARCH */
           <InvoiceList

@@ -441,4 +441,24 @@ describe('Draft Manager Complete Lifecycle & Invariant Verification', () => {
     expect(storageService.getActiveDraft()).toBeNull();
     expect(storageService.getActiveDraftId()).toBeNull();
   });
+
+  // 24. Background sync never overwrites newer local keystrokes with stale server draft data
+  it('Case 24: Background sync preserves newer local keystrokes over older server draft data', () => {
+    const draftId = 'draft_active_typing';
+    const serverDraft = createMockDraft(draftId, 'party_1', '2026-10-04T10:00:00.000Z');
+    serverDraft.dcs[0].ourDcNumber = 'DC-OLD';
+
+    // Local draft is being actively typed into with newer timestamp
+    const localDraft = createMockDraft(draftId, 'party_1', '2026-10-04T10:00:05.000Z');
+    localDraft.dcs[0].ourDcNumber = 'DC-999-NEW';
+    storageService.saveDraft(localDraft);
+    storageService.setActiveDraftId(draftId);
+
+    // Sync arrives with older server data
+    const merged = storageService.mergeDrafts([serverDraft]);
+
+    expect(merged.length).toBe(1);
+    expect(merged[0].dcs[0].ourDcNumber).toBe('DC-999-NEW');
+    expect(storageService.getActiveDraft()?.dcs[0].ourDcNumber).toBe('DC-999-NEW');
+  });
 });

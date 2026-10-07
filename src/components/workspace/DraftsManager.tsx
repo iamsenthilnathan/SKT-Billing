@@ -72,26 +72,19 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
   }, [drafts, sortBy]);
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 sm:p-6 space-y-5">
-      {/* Header bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
-            <Layers className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                Drafts ({drafts.length})
-              </h1>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Switch between concurrent drafts without losing work. Drafts never consume invoice numbers.
-            </p>
-          </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6">
+      {/* Header Row: Title & Top-Right Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            Drafts ({drafts.length})
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Switch between concurrent drafts without losing work. Drafts never consume invoice numbers.
+          </p>
         </div>
 
-        {/* Header Actions: Compact Sort Control & New Bill */}
+        {/* Header Actions: Sort Control & New Bill */}
         <div className="flex items-center gap-3 self-start sm:self-auto shrink-0">
           <div className="flex items-center gap-1.5 text-xs text-slate-600">
             <label htmlFor="drafts-sort" className="font-semibold text-slate-500 whitespace-nowrap">
@@ -101,7 +94,7 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
               id="drafts-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as DraftSortOption)}
-              className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-hidden text-slate-800 cursor-pointer"
+              className="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-hidden text-slate-800 cursor-pointer"
             >
               <option value="recently_modified">Recently Modified</option>
               <option value="bill_date">Bill Date</option>
@@ -111,26 +104,36 @@ export const DraftsManager: React.FC<DraftsManagerProps> = ({
           <button
             type="button"
             onClick={onNewDraft}
-            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs shadow-xs transition-colors shrink-0 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             <span>New Bill</span>
           </button>
         </div>
       </div>
 
-      {/* Empty State */}
+      {/* Content: Empty State or Draft Cards Grid */}
       {drafts.length === 0 ? (
-        <div className="py-12 text-center text-slate-500 space-y-3">
-          <Layers className="w-10 h-10 text-slate-300 mx-auto" />
-          <h3 className="text-sm font-semibold text-slate-800">No drafts yet</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-8 sm:p-12 text-center shadow-2xs">
+          <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+            <Layers className="w-6 h-6 stroke-[1.5]" />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-900 mb-1">No drafts yet</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
             Click "+ New Bill" above to create an independent billing draft.
           </p>
+          <button
+            type="button"
+            onClick={onNewDraft}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Start New Bill</span>
+          </button>
         </div>
       ) : (
         /* Drafts Cards Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {sortedDrafts.map(({ draft, draftNumber }) => {
             const isActive = draft.id === activeDraftId;
             const totalRolls =
