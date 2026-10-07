@@ -118,6 +118,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS settings (
       id TEXT PRIMARY KEY,
       business_name TEXT NOT NULL,
+      business_descriptor TEXT,
       address TEXT NOT NULL,
       gstin TEXT NOT NULL,
       phone TEXT NOT NULL,
@@ -209,6 +210,9 @@ async function initDb() {
     await client.execute('ALTER TABLE settings ADD COLUMN opening_invoice_sequences TEXT;');
   } catch (_) {}
   try {
+    await client.execute('ALTER TABLE settings ADD COLUMN business_descriptor TEXT;');
+  } catch (_) {}
+  try {
     await client.execute('ALTER TABLE parties ADD COLUMN is_archived INTEGER DEFAULT 0;');
   } catch (_) {}
   try {
@@ -225,11 +229,11 @@ async function initDb() {
     await client.execute({
       sql: `
         INSERT INTO settings (
-          id, business_name, address, gstin, phone, email,
+          id, business_name, business_descriptor, address, gstin, phone, email,
           bank_name, account_number, ifsc_code, branch,
           default_cgst_rate, default_sgst_rate, invoice_prefix, updated_at
         ) VALUES (
-          'default', 'SRI KRISHNA TEXTILE', '12, Mill Road, Tirupur - 641 602, Tamil Nadu',
+          'default', 'SRI KRISHNA TEXTILE', '(SoftFlow Fabric Dyeing)', '12, Mill Road, Tirupur - 641 602, Tamil Nadu',
           '33AAAAA0000A1Z5', '9876543210', 'srikrishnatextile@example.com',
           'State Bank of India', '12345678901234', 'SBIN0001234', 'Tirupur Main',
           2.5, 2.5, 'SKT', datetime('now')

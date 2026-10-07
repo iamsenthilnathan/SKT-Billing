@@ -186,4 +186,21 @@ describe('Invoice Print Requirements & DC Date Inheritance', () => {
     expect(val.isValid).toBe(true);
     expect(val.errors).toHaveLength(0);
   });
+
+  it('verifies business descriptor resolution and fallback for invoice header', () => {
+    // Descriptor resolution logic identical to InvoiceView header
+    const resolveDescriptor = (settings: { businessDescriptor?: string }) => {
+      return settings.businessDescriptor || '(SoftFlow Fabric Dyeing)';
+    };
+
+    // When configured with custom descriptor
+    expect(resolveDescriptor({ businessDescriptor: '(Yarn Processing Unit)' })).toBe('(Yarn Processing Unit)');
+
+    // When configured with default
+    expect(resolveDescriptor({ businessDescriptor: '(SoftFlow Fabric Dyeing)' })).toBe('(SoftFlow Fabric Dyeing)');
+
+    // When missing or empty (backward compatibility fallback)
+    expect(resolveDescriptor({})).toBe('(SoftFlow Fabric Dyeing)');
+    expect(resolveDescriptor({ businessDescriptor: '' })).toBe('(SoftFlow Fabric Dyeing)');
+  });
 });

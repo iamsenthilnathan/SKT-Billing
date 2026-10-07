@@ -52,6 +52,7 @@ safeStorage.removeItem('skt_draft_numbers_v1');
 export const DEFAULT_SETTINGS: BusinessSettings = {
   id: 'default',
   businessName: 'SRI KRISHNA TEXTILE',
+  businessDescriptor: '(SoftFlow Fabric Dyeing)',
   address: '12, Mill Road, Tirupur - 641 602, Tamil Nadu',
   gstin: '33AAAAA0000A1Z5',
   phone: '9876543210',
@@ -137,7 +138,18 @@ class StorageService {
   getSettings(): BusinessSettings {
     try {
       const data = safeStorage.getItem(SETTINGS_KEY);
-      return data ? JSON.parse(data) : DEFAULT_SETTINGS;
+      if (data) {
+        const parsed = JSON.parse(data);
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          businessDescriptor:
+            parsed.businessDescriptor !== undefined && parsed.businessDescriptor !== null && parsed.businessDescriptor !== ''
+              ? parsed.businessDescriptor
+              : DEFAULT_SETTINGS.businessDescriptor,
+        };
+      }
+      return DEFAULT_SETTINGS;
     } catch {
       return DEFAULT_SETTINGS;
     }

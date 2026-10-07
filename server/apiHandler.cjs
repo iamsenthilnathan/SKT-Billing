@@ -1,4 +1,4 @@
-const { db } = require('./db.cjs');
+const { db, initPromise } = require('./db.cjs');
 const {
   validateCredentials,
   createSessionToken,
@@ -38,6 +38,9 @@ function parseJsonBody(req) {
 }
 
 async function handleApiRequest(req, res, next) {
+  if (initPromise) {
+    await initPromise;
+  }
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -101,6 +104,7 @@ async function handleApiRequest(req, res, next) {
       const settings = rawSettings ? {
         id: rawSettings.id,
         businessName: rawSettings.business_name,
+        businessDescriptor: rawSettings.business_descriptor || '(SoftFlow Fabric Dyeing)',
         address: rawSettings.address,
         gstin: rawSettings.gstin,
         phone: rawSettings.phone,
@@ -644,6 +648,7 @@ async function handleApiRequest(req, res, next) {
         return sendJson(res, 200, rawSettings ? {
           id: rawSettings.id,
           businessName: rawSettings.business_name,
+          businessDescriptor: rawSettings.business_descriptor || '(SoftFlow Fabric Dyeing)',
           address: rawSettings.address,
           gstin: rawSettings.gstin,
           phone: rawSettings.phone,
@@ -664,6 +669,9 @@ async function handleApiRequest(req, res, next) {
         const s = await parseJsonBody(req);
         const now = new Date().toISOString();
         const openingJson = JSON.stringify(s.openingInvoiceSequences || {});
+        const descriptor = (s.businessDescriptor !== undefined && s.businessDescriptor !== null && s.businessDescriptor !== '')
+          ? s.businessDescriptor
+          : '(SoftFlow Fabric Dyeing)';
 
         // Validation: Ensure opening sequence cannot create duplicates with finalized invoices
         if (s.openingInvoiceSequences && typeof s.openingInvoiceSequences === 'object') {
@@ -682,14 +690,14 @@ async function handleApiRequest(req, res, next) {
 
         await db.run(`
           UPDATE settings SET
-            business_name = ?, address = ?, gstin = ?, phone = ?, email = ?,
+            business_name = ?, business_descriptor = ?, address = ?, gstin = ?, phone = ?, email = ?,
             bank_name = ?, account_number = ?, ifsc_code = ?, branch = ?,
             default_cgst_rate = ?, default_sgst_rate = ?, invoice_prefix = ?,
             financial_year_override = ?, opening_invoice_sequences = ?,
             updated_at = ?
           WHERE id = 'default'
         `, [
-          s.businessName, s.address, s.gstin, s.phone, s.email,
+          s.businessName, descriptor, s.address, s.gstin, s.phone, s.email,
           s.bankName, s.accountNumber, s.ifscCode, s.branch,
           s.defaultCgstRate, s.defaultSgstRate, s.invoicePrefix,
           s.financialYearOverride || '',

@@ -10,14 +10,27 @@ describe('Storage Service & Sequence Engine', () => {
   it('loads default settings and saves modifications', () => {
     const settings = storageService.getSettings();
     expect(settings.businessName).toBe('SRI KRISHNA TEXTILE');
+    expect(settings.businessDescriptor).toBe('(SoftFlow Fabric Dyeing)');
     expect(settings.invoicePrefix).toBe('SKT');
 
     storageService.saveSettings({
       ...settings,
       businessName: 'SRI KRISHNA DYEING PROCESS',
+      businessDescriptor: '(SoftFlow Fabric Dyeing & Bleaching)',
     });
 
     expect(storageService.getSettings().businessName).toBe('SRI KRISHNA DYEING PROCESS');
+    expect(storageService.getSettings().businessDescriptor).toBe('(SoftFlow Fabric Dyeing & Bleaching)');
+  });
+
+  it('safely falls back to default businessDescriptor if field is missing or empty in stored settings', () => {
+    // Simulate legacy storage without businessDescriptor
+    const settings = storageService.getSettings();
+    const legacySettings = { ...settings };
+    delete (legacySettings as any).businessDescriptor;
+    storageService.saveSettings(legacySettings as any);
+
+    expect(storageService.getSettings().businessDescriptor).toBe('(SoftFlow Fabric Dyeing)');
   });
 
   it('correctly increments invoice sequence per financial year and resets on new year', () => {

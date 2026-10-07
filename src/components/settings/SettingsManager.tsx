@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Settings as SettingsIcon,
   Save,
   Download,
   Upload,
+  Check,
   CheckCircle2,
   ShieldCheck,
   AlertCircle,
@@ -16,7 +17,7 @@ import { getFinancialYear } from '../../domain/calculations';
 interface SettingsManagerProps {
   settings: BusinessSettings;
   invoices?: Invoice[];
-  onSaveSettings: (settings: BusinessSettings) => void;
+  onSaveSettings: (settings: BusinessSettings) => Promise<any> | void;
   onReloadAllData: () => void;
 }
 
@@ -28,9 +29,19 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
 }) => {
   const [formData, setFormData] = useState<BusinessSettings>(settings);
   const [savedToast, setSavedToast] = useState(false);
+  const [savedConfirm, setSavedConfirm] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [newFyInput, setNewFyInput] = useState('');
   const [showAddFy, setShowAddFy] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setFormData(settings);
@@ -107,7 +118,7 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
     setShowAddFy(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (hasAnyDuplicateError) {
       alert(
@@ -115,9 +126,22 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
       );
       return;
     }
-    onSaveSettings(formData);
-    setSavedToast(true);
-    setTimeout(() => setSavedToast(false), 3000);
+    try {
+      await onSaveSettings(formData);
+      setSavedToast(true);
+      setSavedConfirm(true);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+      saveTimerRef.current = setTimeout(() => {
+        setSavedToast(false);
+        setSavedConfirm(false);
+      }, 2500);
+    } catch (err: any) {
+      setSavedToast(false);
+      setSavedConfirm(false);
+      alert(err?.message || 'Failed to save settings. Please try again.');
+    }
   };
 
   const handleExportBackup = () => {
@@ -267,6 +291,19 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
                 onChange={(e) => setFormData({ ...formData, invoicePrefix: e.target.value.toUpperCase() })}
                 className="w-full text-xs font-mono font-semibold px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 text-slate-900"
                 required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Business Descriptor:
+              </label>
+              <input
+                type="text"
+                value={formData.businessDescriptor !== undefined ? formData.businessDescriptor : '(SoftFlow Fabric Dyeing)'}
+                onChange={(e) => setFormData({ ...formData, businessDescriptor: e.target.value })}
+                placeholder="(SoftFlow Fabric Dyeing)"
+                className="w-full text-xs font-medium px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 text-slate-900"
               />
             </div>
 
@@ -563,7 +600,13 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end pt-3 border-t border-slate-100">
+        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+          {savedConfirm && (
+            <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5 transition-opacity">
+              <Check className="w-4 h-4 text-emerald-600" />
+              <span>Saved</span>
+            </span>
+          )}
           <button
             type="submit"
             disabled={hasAnyDuplicateError}

@@ -361,7 +361,7 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
                   {settings.businessName}
                 </h1>
                 <p className="text-xs sm:text-[13px] font-bold text-slate-700 uppercase tracking-[0.22em] mt-1.5">
-                  Cloth Dyeing & Processing Job Work
+                  {settings.businessDescriptor || '(SoftFlow Fabric Dyeing)'}
                 </p>
                 <p className="text-xs text-slate-600 mt-1.5 max-w-xl mx-auto leading-relaxed">
                   {settings.address}

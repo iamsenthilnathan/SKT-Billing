@@ -1,6 +1,7 @@
 export interface BusinessSettings {
   id: string;
   businessName: string;
+  businessDescriptor?: string;
   address: string;
   gstin: string;
   phone: string;
