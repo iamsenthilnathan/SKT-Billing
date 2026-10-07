@@ -31,12 +31,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Internal Production Manuals & Handover Docs
+*HANDOVER*.md
+*handover*.md
+PROJECT_HANDOVER_MANUAL.md
+
 # Test Outputs & Temporary Verification Artifacts
 test-output/
 verify_*.cjs
 test_*.cjs
 test_*.mjs
 test-prompt*.txt
+scripts/*-qa.cjs
+*-qa.cjs
+test-qa-*
+
 
 # Editor & OS Artifacts
 .DS_Store
